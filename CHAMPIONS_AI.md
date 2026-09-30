@@ -13,7 +13,8 @@ Before recommending any action, evaluate in this order:
 5. Terrain, weather, redirection, and priority-blocking effects.
 6. Protect history.
 7. Residual damage, recoil, Rocky Helmet/contact punishment, and status.
-8. Offensive KO lines.
+8. Exact damage ranges, KO probabilities, and combined-damage lines.
+9. Offensive KO lines.
 
 ## v1 milestones
 
@@ -22,6 +23,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Add the user's Pokemon Champions team.
 - [ ] Build a battle-state tracker.
 - [ ] Build spread-damage threat detection.
+- [ ] Build exact damage-calculation layer and verify it against established damage-calculator outputs.
 - [ ] Build effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
 - [ ] Enumerate legal joint actions.
