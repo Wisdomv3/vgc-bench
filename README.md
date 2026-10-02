@@ -1,13 +1,25 @@
-# VGC-Bench
+# VGC-Bench — Champions AI Fork
 
 [![CI](https://github.com/cameronangliss/vgc-bench/actions/workflows/tests.yml/badge.svg)](https://github.com/cameronangliss/vgc-bench/actions/workflows/tests.yml)
 [![Python 3.10‒3.14](https://img.shields.io/badge/python-3.10%E2%80%933.14-blue)](https://github.com/cameronangliss/vgc-bench)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv-2506.10326-b31b1b)](https://arxiv.org/abs/2506.10326)
 
-This is the official code for [VGC-Bench: Towards Mastering Diverse Team Strategies in Competitive Pokémon](https://arxiv.org/abs/2506.10326).
+This repository is a community fork of the MIT-licensed [VGC-Bench](https://github.com/cameronangliss/vgc-bench) project. The upstream project is the official code for [VGC-Bench: Towards Mastering Diverse Team Strategies in Competitive Pokémon](https://arxiv.org/abs/2506.10326).
 
-This benchmark includes:
+This fork is adding a Pokémon Champions doubles decision layer under `vgc_bench/src/champions_ai/`, including spread-move risk detection, battle-state tracking, exact speed analysis, damage calculation, blunder guards, opponent modeling, and joint-action scoring.
+
+## License, attribution, and project status
+
+The repository remains licensed under the MIT License. Existing upstream copyright and license notices are preserved. New Champions AI contributions are intended to be distributed under the same MIT License unless a file states otherwise.
+
+Core upstream projects include VGC-Bench, Pokémon Showdown, and poke-env. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license details.
+
+This is an independent, unofficial open-source research/fan project. It is not affiliated with, endorsed by, or sponsored by Nintendo, Game Freak, The Pokémon Company, Smogon, Pokémon Showdown, or the VGC-Bench authors. Pokémon and related names and marks belong to their respective owners.
+
+## Upstream VGC-Bench features
+
+The upstream benchmark includes:
 - multi-agent reinforcement learning (RL) with 4 Policy Space Response Oracle (PSRO) algorithms to fine-tune an agent initialized either randomly or with the output of the BC pipeline
 - a behavior cloning (BC) pipeline to gather human demonstrations, process them into state-action pairs, and train a model to imitate human play
 - a basic Large Language Model (LLM) player that any LLM can easily be plugged into
