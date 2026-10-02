@@ -18,11 +18,11 @@ Before recommending any action, evaluate in this order:
 
 ## v1 milestones
 
-- [ ] Run the fork locally with its pinned Pokemon Showdown submodule.
-- [ ] Confirm VGC-Bench training/play modules start successfully.
+- [x] Run the fork locally with its pinned Pokemon Showdown submodule.
+- [x] Confirm VGC-Bench training/play modules start successfully.
 - [ ] Add the user's Pokemon Champions team.
 - [ ] Build a battle-state tracker.
-- [ ] Build spread-damage threat detection.
+- [x] Build initial spread-damage threat detection.
 - [ ] Build exact damage-calculation layer and verify it against established damage-calculator outputs.
 - [ ] Build effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
