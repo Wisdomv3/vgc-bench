@@ -64,6 +64,7 @@ class DecisionSnapshot:
     weather: str | None
     terrain: str | None
     trick_room_turns: int
+    field_conditions: tuple[str, ...]
     history_size: int
     legal_actions: tuple[str, ...] = ()
 
@@ -78,6 +79,7 @@ class DecisionSnapshot:
             weather=state.weather,
             terrain=state.terrain,
             trick_room_turns=state.trick_room_turns,
+            field_conditions=tuple(sorted(state.field_conditions)),
             history_size=len(state.events),
             legal_actions=legal_actions,
         )
