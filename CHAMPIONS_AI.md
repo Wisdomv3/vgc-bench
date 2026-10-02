@@ -27,7 +27,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Build effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
 - [ ] Enumerate legal joint actions.
-- [ ] Add rule-based blunder guards.
+- [ ] Add rule-based catastrophic-error guards.
 - [ ] Rank candidate actions with a heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
@@ -36,3 +36,33 @@ Before recommending any action, evaluate in this order:
 ## Important design principle
 
 The engine should not choose the move with the highest immediate damage. It should choose the legal joint action with the highest estimated probability of winning the entire battle.
+
+
+## Decision grading scale
+
+The coaching/review system grades each joint action using only the information
+available at that decision point. It must not use later battle information to
+re-grade an earlier turn.
+
+Best to worst:
+
+1. **Stupendous**
+2. **Amazing**
+3. **Outstanding**
+4. **Awesome**
+5. **Great**
+6. **Good**
+7. **Ok**
+8. **Mistake**
+9. **Miss**
+10. **Throwing**
+
+Grades should primarily reflect the estimated loss in match win probability
+between the player's chosen joint action and the strongest action the engine
+could identify from the same decision snapshot. Exact thresholds should be
+calibrated from simulation and benchmark data rather than chosen arbitrarily.
+
+A strong decision that receives an unlucky outcome should retain its strong
+decision grade. Outcome variance, such as critical hits, misses, flinches,
+damage rolls, and speed ties, should be reported separately from decision
+quality.
