@@ -51,6 +51,7 @@ class BattleState:
     weather: str | None = None
     terrain: str | None = None
     trick_room_turns: int = 0
+    field_conditions: set[str] = field(default_factory=set)
     events: list[BattleEvent] = field(default_factory=list)
 
     def side_state(self, side: Side) -> SideState:
@@ -99,7 +100,7 @@ class BattleState:
             pokemon.protect_streak = 0
             side_state.active_slots[event.slot] = name
 
-        elif event.type is EventType.MOVE_USED:
+        elif event.type in {EventType.MOVE_USED, EventType.MOVE_REVEALED}:
             side = self._require_side(event)
             name = self._require_pokemon(event)
             if not event.move:
@@ -180,10 +181,41 @@ class BattleState:
                 raise ValueError("terrain_changed value must be a string or None")
             self.terrain = event.value
 
+        elif event.type is EventType.FIELD_CONDITION_CHANGED:
+            if not event.field or not isinstance(event.value, bool):
+                raise ValueError(
+                    "field_condition_changed requires field and boolean value"
+                )
+            if event.value:
+                self.field_conditions.add(event.field)
+            else:
+                self.field_conditions.discard(event.field)
+
+        elif event.type is EventType.SIDE_CONDITION_CHANGED:
+            side = self._require_side(event)
+            if not event.field or not isinstance(event.value, bool):
+                raise ValueError(
+                    "side_condition_changed requires field and boolean value"
+                )
+            side_state = self.side_state(side)
+            if event.value:
+                side_state.side_conditions.add(event.field)
+            else:
+                side_state.side_conditions.discard(event.field)
+
         elif event.type is EventType.PROTECT_USED:
             side = self._require_side(event)
             name = self._require_pokemon(event)
             self.get_or_create_pokemon(side, name).protect_streak += 1
+
+        elif event.type is EventType.PROTECT_STREAK_CHANGED:
+            side = self._require_side(event)
+            name = self._require_pokemon(event)
+            if not isinstance(event.value, int) or event.value < 0:
+                raise ValueError(
+                    "protect_streak_changed requires a non-negative integer"
+                )
+            self.get_or_create_pokemon(side, name).protect_streak = event.value
 
         elif event.type is EventType.NOTE:
             pass
