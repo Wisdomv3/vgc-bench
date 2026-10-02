@@ -22,6 +22,7 @@ class EventType(str, Enum):
     TURN_STARTED = "turn_started"
     SWITCH_IN = "switch_in"
     MOVE_USED = "move_used"
+    MOVE_REVEALED = "move_revealed"
     HP_UPDATED = "hp_updated"
     FAINTED = "fainted"
     STATUS_CHANGED = "status_changed"
@@ -32,7 +33,10 @@ class EventType(str, Enum):
     TRICK_ROOM_CHANGED = "trick_room_changed"
     WEATHER_CHANGED = "weather_changed"
     TERRAIN_CHANGED = "terrain_changed"
+    FIELD_CONDITION_CHANGED = "field_condition_changed"
+    SIDE_CONDITION_CHANGED = "side_condition_changed"
     PROTECT_USED = "protect_used"
+    PROTECT_STREAK_CHANGED = "protect_streak_changed"
     NOTE = "note"
 
 
