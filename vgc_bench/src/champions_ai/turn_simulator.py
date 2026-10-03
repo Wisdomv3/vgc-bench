@@ -1662,6 +1662,21 @@ def _execute_move(
         )
         return
 
+    move_id = normalize_move_id(action.move)
+    move = Move(move_id, gen)
+
+    if not _sleep_or_freeze_allows_move(
+        state,
+        speed_states,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        config=config,
+    ):
+        state.protect_streaks[(side, actor)] = 0
+        return
+
     flinch_key = (side, actor)
     if flinch_key in flinched:
         flinched.discard(flinch_key)
@@ -1677,8 +1692,16 @@ def _execute_move(
         )
         return
 
-    move_id = normalize_move_id(action.move)
-    move = Move(move_id, gen)
+    if not _paralysis_allows_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        config=config,
+    ):
+        state.protect_streaks[(side, actor)] = 0
+        return
 
     if move_id in STALL_MOVES:
         streak_key = (side, actor)
