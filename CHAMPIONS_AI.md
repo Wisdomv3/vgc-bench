@@ -36,7 +36,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add Psychic Terrain priority blocking, grounded checks, Wide Guard spread protection, Follow Me/Rage Powder redirection, and common redirection bypasses to the turn simulator.
 - [x] Add move recoil, Life Orb recoil, Rough Skin/Iron Barbs, Rocky Helmet, Protective Pads, Focus Sash survival, and end-of-turn residual/healing mechanics.
 - [x] Add before-move paralysis, sleep, and freeze mechanics with exact branching, sleep counters, Early Bird, sleep-usable moves, defrost moves, and thaw-on-hit interactions.
-- [ ] Add confusion and remaining volatile before-move action-denial mechanics.
+- [x] Add confusion duration/self-hit branching, Own Tempo handling, and Hyper Beam/Giga Impact-style recharge turns.
+- [ ] Add remaining volatile action-denial mechanics such as Truant, attraction, locked/restricted moves, and format-relevant edge cases.
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
