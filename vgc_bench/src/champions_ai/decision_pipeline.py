@@ -33,10 +33,14 @@ from vgc_bench.src.champions_ai.inputs.showdown import (
 from vgc_bench.src.champions_ai.inputs.showdown_actions import (
     legal_joint_actions_from_showdown,
 )
+from vgc_bench.src.champions_ai.hidden_sets import SetHypothesis
 from vgc_bench.src.champions_ai.matchup import CombatantProfile, MoveProfile
 from vgc_bench.src.champions_ai.mechanics_evaluator import (
     MechanicsResponseAnalysis,
     build_mechanics_response_analysis,
+)
+from vgc_bench.src.champions_ai.opponent_actions import (
+    generate_opponent_action_candidates,
 )
 from vgc_bench.src.champions_ai.opponent_model import (
     ActionProbability,
@@ -369,9 +373,13 @@ def rank_decision(
 def rank_showdown_decision(
     battle: DoubleBattle,
     profiles: dict[tuple[TurnSide, str], CombatantProfile],
-    opponent_candidates: tuple[OpponentActionCandidate, ...],
     move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
+    opponent_candidates: tuple[OpponentActionCandidate, ...] | None = None,
     *,
+    hidden_hypotheses: dict[str, tuple[SetHypothesis, ...]] | None = None,
+    include_opponent_switches: bool = True,
+    opponent_switch_prior_weight: float = 1.0,
+    max_opponent_candidates: int | None = None,
     speed_states: dict[tuple[TurnSide, str], SpeedState] | None = None,
     unburden_active: frozenset[tuple[TurnSide, str]] = frozenset(),
     paradox_speed_active: frozenset[tuple[TurnSide, str]] = frozenset(),
@@ -382,7 +390,12 @@ def rank_showdown_decision(
     position_weights: PositionWeights | None = None,
     gen: int = 9,
 ) -> DecisionReport:
-    """Build live Showdown inputs and run one end-to-end decision calculation."""
+    """Build live Showdown inputs and run one end-to-end decision calculation.
+
+    When opponent_candidates is omitted, plausible opponent responses are built
+    automatically from the public board, revealed moves, revealed switches, and
+    caller-supplied hidden-set hypotheses.
+    """
 
     legal_actions = tuple(legal_joint_actions_from_showdown(battle))
     snapshot = decision_snapshot_from_showdown(
@@ -393,6 +406,18 @@ def rank_showdown_decision(
         battle,
         profiles,
     )
+
+    if opponent_candidates is None:
+        opponent_candidates = generate_opponent_action_candidates(
+            battle,
+            snapshot,
+            exact_state,
+            hidden_hypotheses=hidden_hypotheses,
+            include_switches=include_opponent_switches,
+            switch_prior_weight=opponent_switch_prior_weight,
+            max_candidates=max_opponent_candidates,
+            gen=gen,
+        )
 
     if speed_states is None:
         speed_states = speed_states_from_exact_state(
