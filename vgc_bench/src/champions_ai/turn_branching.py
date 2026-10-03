@@ -165,6 +165,35 @@ def _state_signature(state: ExactTurnState) -> tuple:
             for side, name in state.must_recharge
         )
     )
+    truant_loaf = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+            )
+            for side, name in state.truant_loaf
+        )
+    )
+    choice_locks = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                move_id,
+            )
+            for (side, name), move_id in state.choice_locks.items()
+        )
+    )
+    last_moves = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                move_id,
+            )
+            for (side, name), move_id in state.last_moves.items()
+        )
+    )
     return (
         profiles,
         active_slots,
@@ -177,6 +206,9 @@ def _state_signature(state: ExactTurnState) -> tuple:
         sleep_turns,
         confusion_turns,
         must_recharge,
+        truant_loaf,
+        choice_locks,
+        last_moves,
         tuple(sorted(state.field_conditions)),
     )
 
