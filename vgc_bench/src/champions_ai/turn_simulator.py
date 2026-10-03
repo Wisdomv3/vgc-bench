@@ -401,8 +401,9 @@ def _accuracy_probability(
     return move.accuracy
 
 
-def _damage_roll_index(
+def _damage_amount(
     config: TurnSimulationConfig,
+    damage_rolls: tuple[int, ...],
     *,
     side: TurnSide,
     actor: str,
@@ -419,10 +420,18 @@ def _damage_roll_index(
             target_side.value,
             target_name,
         )
+
+        counts: dict[int, int] = {}
+        for damage in damage_rolls:
+            counts[damage] = counts.get(damage, 0) + 1
+
         selected = _choice(
             config,
             key,
-            tuple((index, 1.0 / 16.0) for index in range(16)),
+            tuple(
+                (damage, count / len(damage_rolls))
+                for damage, count in sorted(counts.items())
+            ),
         )
         return int(selected)
 
@@ -430,7 +439,7 @@ def _damage_roll_index(
         raise ValueError(
             "fixed simulation requires damage_roll_index when damage branching is off"
         )
-    return config.damage_roll_index
+    return damage_rolls[config.damage_roll_index]
 
 
 def _apply_damage(
@@ -544,15 +553,15 @@ def _apply_damage(
         weather=state.weather,
         critical=critical,
     )
-    roll_index = _damage_roll_index(
+    damage = _damage_amount(
         config,
+        damage_result.rolls,
         side=side,
         actor=actor,
         move_id=move_id,
         target_side=target_side,
         target_name=target_name,
     )
-    damage = damage_result.rolls[roll_index]
     new_hp = max(0, defender.current_hp - damage)
 
     state.profiles[(target_side, target_name)] = replace(
