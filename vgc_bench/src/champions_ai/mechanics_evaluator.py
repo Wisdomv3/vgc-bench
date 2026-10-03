@@ -116,7 +116,7 @@ def build_mechanics_response_matrix(
 ) -> tuple[ActionResponseSummary, ...]:
     """Rank our actions using simulated expected position-score change."""
 
-    cache: dict[tuple[str, str], float] = {}
+    cache: dict[tuple[tuple, tuple], float] = {}
 
     def evaluator(
         our_action: JointAction,
