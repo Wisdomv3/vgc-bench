@@ -33,6 +33,7 @@ class CombatantProfile:
     item: str | None = None
     ability: str | None = None
     status: str | None = None
+    gender: str | None = None
 
     def __post_init__(self) -> None:
         if self.level <= 0:
@@ -81,6 +82,9 @@ def _apply_stat_stage(stat: int, stage: int) -> int:
 
 def _type_modifier(move_type: str, defender_types: tuple[str, ...], gen: int) -> int | None:
     """Return Showdown-style type stage, or None for immunity."""
+
+    if normalize_move_id(move_type) in {"threequestionmarks", ""} or move_type == "???":
+        return 0
 
     data = GenData.from_gen(gen)
     attack_type = move_type.upper()
@@ -176,6 +180,11 @@ def profile_from_poke_env(pokemon: Pokemon) -> CombatantProfile:
         item=pokemon.item,
         ability=pokemon.ability,
         status=status,
+        gender=(
+            pokemon.gender.name.lower()
+            if pokemon.gender is not None
+            else None
+        ),
     )
 
 
