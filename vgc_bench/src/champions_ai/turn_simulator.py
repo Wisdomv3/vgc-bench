@@ -2705,6 +2705,7 @@ def _execute_move(
     wide_guard_sides: set[TurnSide],
     redirections: dict[TurnSide, tuple[str, str]],
     flinched: set[tuple[TurnSide, str]],
+    torment_blocked_moves: dict[tuple[TurnSide, str], str],
     move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
     config: TurnSimulationConfig,
     side: TurnSide,
@@ -2728,9 +2729,20 @@ def _execute_move(
         )
         return
 
-    move_id = normalize_move_id(action.move)
-    move = Move(move_id, gen)
+    requested_move_id = normalize_move_id(action.move)
+    pp_resolution = _resolve_pp_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        requested_move_id=requested_move_id,
+        gen=gen,
+    )
+    if pp_resolution is None:
+        state.protect_streaks[(side, actor)] = 0
+        return
 
+    move_id, move = pp_resolution
     volatile_key = (side, actor)
     disabled_move, taunted, _encore_move = _consume_turn_restrictions(
         state,
@@ -2758,6 +2770,7 @@ def _execute_move(
         side=side,
         actor=actor,
         move=move,
+        torment_blocked_move=torment_blocked_moves.get(volatile_key),
     ):
         state.protect_streaks[(side, actor)] = 0
         return
@@ -2822,6 +2835,17 @@ def _execute_move(
         state.protect_streaks[(side, actor)] = 0
         return
 
+    if not _attraction_allows_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        config=config,
+    ):
+        state.protect_streaks[(side, actor)] = 0
+        return
+
     if not _paralysis_allows_move(
         state,
         events,
@@ -2832,6 +2856,15 @@ def _execute_move(
     ):
         state.protect_streaks[(side, actor)] = 0
         return
+
+    _deduct_move_pp(
+        state,
+        side=side,
+        actor=actor,
+        action=action,
+        move=move,
+        redirections=redirections,
+    )
 
     _record_committed_move(
         state,
@@ -2959,14 +2992,21 @@ def _execute_move(
         return
 
     key = _move_key(side, actor, move_id)
-    if key not in move_profiles:
+    if move_id == "struggle":
+        move_profile = MoveProfile(
+            move_id="struggle",
+            base_power=50,
+            category="physical",
+            move_type="three_question_marks",
+        )
+    elif key not in move_profiles:
         if move.category is MoveCategory.STATUS:
             raise UnsupportedTurnMechanic(
                 f"status move {move_id} is not implemented in turn simulator v0"
             )
         raise ValueError(f"missing MoveProfile for {side.value} {actor} {move_id}")
-
-    move_profile = move_profiles[key]
+    else:
+        move_profile = move_profiles[key]
 
     targets: list[tuple[TurnSide, str]]
     if move_profile.spread:
@@ -3072,6 +3112,22 @@ def _execute_move(
         move=move,
         total_damage_dealt=total_damage_dealt,
     )
+
+    if (
+        move_id == "struggle"
+        and total_damage_dealt > 0
+        and state.profile(side, actor).current_hp > 0
+    ):
+        profile = state.profile(side, actor)
+        _apply_direct_damage(
+            state,
+            events,
+            side=side,
+            name=actor,
+            amount=_round_fraction(profile.max_hp, 1, 4),
+            event_type=SimulationEventType.RECOIL,
+            detail=f"{actor} took Struggle recoil.",
+        )
 
     self_effect = move.entry.get("self")
     if (
