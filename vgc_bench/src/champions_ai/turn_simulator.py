@@ -60,6 +60,10 @@ class SimulationEventType(str, Enum):
     DAMAGE = "damage"
     MISS = "miss"
     CRITICAL = "critical"
+    STATUS = "status"
+    BOOST = "boost"
+    FLINCH = "flinch"
+    FLINCHED = "flinched"
     BLOCKED = "blocked"
     FAINT = "faint"
     SKIPPED = "skipped"
@@ -146,6 +150,7 @@ class TurnSimulationConfig:
     branch_damage_rolls: bool = False
     branch_accuracy: bool = False
     branch_critical_hits: bool = False
+    branch_secondary_effects: bool = False
     branch_protect: bool = False
     branch_speed_ties: bool = False
 
