@@ -174,6 +174,18 @@ def showdown_events(battle: DoubleBattle) -> list[BattleEvent]:
                 )
             )
 
+            first_turn = getattr(pokemon, "first_turn", None)
+            if isinstance(first_turn, bool):
+                events.append(
+                    BattleEvent(
+                        type="first_turn_changed",
+                        side=side,
+                        pokemon=name,
+                        value=first_turn,
+                        source="showdown",
+                    )
+                )
+
     for side, conditions in [
         ("player", battle.side_conditions),
         ("opponent", battle.opponent_side_conditions),
