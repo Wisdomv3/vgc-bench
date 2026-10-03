@@ -26,6 +26,7 @@ Before recommending any action, evaluate in this order:
 - [x] Add Pokemon Showdown structured-state input adapter.
 - [ ] Build full exact damage-calculation layer and verify matchup outputs against established damage calculators.
 - [x] Build exact generation-9 core damage arithmetic and KO-probability utilities.
+- [x] Add initial exact matchup resolver for stats, stages, STAB, type effectiveness, weather, burn, and Life Orb.
 - [x] Build initial effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
 - [x] Enumerate legal joint actions.
