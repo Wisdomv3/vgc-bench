@@ -1469,6 +1469,24 @@ def _apply_secondary_effects(
                         detail=f"{target_name} was flinched.",
                     )
                 )
+        elif volatile_status == "confusion":
+            target = state.profile(target_side, target_name)
+            confusion_key = (target_side, target_name)
+            if (
+                normalize_move_id(target.ability or "") != "owntempo"
+                and confusion_key not in state.confusion_turns
+            ):
+                state.confusion_turns[confusion_key] = 0
+                events.append(
+                    SimulationEvent(
+                        type=SimulationEventType.CONFUSION,
+                        side=side,
+                        actor=actor,
+                        move=move.id,
+                        target=target_name,
+                        detail=f"{target_name} became confused.",
+                    )
+                )
 
         status = secondary.get("status")
         if isinstance(status, str):
