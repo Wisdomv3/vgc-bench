@@ -50,6 +50,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
 - [x] Add a transparent opponent-action probability model with context-specific habit tracking.
 - [x] Harden opponent-action probability normalization, including zero-baseline empirical behaviors and non-finite prior rejection.
+- [x] Automatically generate plausible opponent joint actions from the live board, revealed moves/PP, revealed switches, public move restrictions, and compatible hidden-set hypotheses.
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
 - [x] Build an end-to-end decision pipeline combining live state, legal actions, opponent probabilities, probabilistic mechanics simulation, catastrophic guards, and ranked recommendations.
 - [x] Add a compact BEST PLAY live-output formatter with two slot actions, opponent-response watch line, and no more than two concise reasons.
