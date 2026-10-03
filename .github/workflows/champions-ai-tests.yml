@@ -1,0 +1,35 @@
+name: Champions AI tests
+
+on:
+  push:
+    branches:
+      - champions-ai-v1
+    paths:
+      - "vgc_bench/src/champions_ai/**"
+      - "unit_tests/test_champions_ai_*.py"
+      - ".github/workflows/champions-ai-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  champions-ai:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest==8.3.5
+          python -m pip install "git+https://github.com/cameronangliss/poke-env.git@vgc-bench"
+
+      - name: Run Champions AI suite
+        run: |
+          python -m pytest unit_tests/test_champions_ai_*.py -q
