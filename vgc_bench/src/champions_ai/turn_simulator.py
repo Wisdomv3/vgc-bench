@@ -155,7 +155,13 @@ class ExactTurnState:
         default_factory=dict
     )
     imprison_users: set[tuple[TurnSide, str]] = field(default_factory=set)
+    tormented: set[tuple[TurnSide, str]] = field(default_factory=set)
+    attractions: dict[
+        tuple[TurnSide, str],
+        tuple[TurnSide, str],
+    ] = field(default_factory=dict)
     known_moves: dict[tuple[TurnSide, str], set[str]] = field(default_factory=dict)
+    move_pp: dict[tuple[TurnSide, str, str], int] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -178,10 +184,13 @@ class ExactTurnState:
             taunt_turns=dict(self.taunt_turns),
             encore_locks=dict(self.encore_locks),
             imprison_users=set(self.imprison_users),
+            tormented=set(self.tormented),
+            attractions=dict(self.attractions),
             known_moves={
                 key: set(moves)
                 for key, moves in self.known_moves.items()
             },
+            move_pp=dict(self.move_pp),
             field_conditions=set(self.field_conditions),
         )
 
