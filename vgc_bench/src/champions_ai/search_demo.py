@@ -21,7 +21,8 @@ from vgc_bench.src.champions_ai.turn_order import TurnSide
 from vgc_bench.src.champions_ai.turn_simulator import ExactTurnState
 
 
-def main() -> None:
+def demo_inputs():
+    """Reusable synthetic pre-turn inputs for search and coaching demos."""
     player, opponent = TurnSide.PLAYER, TurnSide.OPPONENT
 
     def profile(name, attack, defense, speed):
@@ -119,6 +120,11 @@ def main() -> None:
         branch_speed_ties=False,
         fixed_damage_roll_index=15,
     )
+    return snapshot, state, immediate, setup, theirs, profiles, policy
+
+
+def main() -> None:
+    snapshot, state, immediate, setup, theirs, profiles, policy = demo_inputs()
     for depth in (1, 2):
         report = rank_decision(
             snapshot,

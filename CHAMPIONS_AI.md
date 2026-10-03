@@ -55,6 +55,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
 - [x] Build an end-to-end decision pipeline combining live state, legal actions, opponent probabilities, probabilistic mechanics simulation, catastrophic guards, and ranked recommendations.
 - [x] Add a compact BEST PLAY live-output formatter with two slot actions, opponent-response watch line, and no more than two concise reasons.
+- [x] Add a secondary pre-turn coaching report, provisional ten-label grading, explicit one-turn event probabilities, habit evidence, and a runnable demo.
+- [ ] Connect coaching to the live player input/display and calibrate decision grades and match-win probabilities from battle data.
 - [x] Add initial turn action ordering for switches, priority, Speed, Tailwind, Trick Room, and explicit Speed ties.
 - [x] Add deterministic turn simulator core for switches, Protect, targeted/spread damage, faint cancellation, Tailwind, Trick Room, Prankster, and Grassy Glide.
 - [x] Add probabilistic turn branching for damage rolls, accuracy, Speed ties, repeated Protect odds, and critical hits.
@@ -140,3 +142,113 @@ A strong decision that receives an unlucky outcome should retain its strong
 decision grade. Outcome variance, such as critical hits, misses, flinches,
 damage rolls, and speed ties, should be reported separately from decision
 quality.
+
+## Pre-turn coaching checkpoint
+
+Run `python -m vgc_bench.src.champions_ai.coaching_demo` for a synthetic
+fixed-RNG demonstration. It evaluates a proposed immediate KO before the turn,
+then explains why two-turn search favors Protect plus Tailwind. It does not
+play a live battle. The same decision engine serves the bot and the coach.
+
+Use `coach_decision` with the same inputs as `rank_decision`, or
+`coach_showdown_decision` with the same inputs as `rank_showdown_decision`:
+
+```python
+from vgc_bench.src.champions_ai.coaching import (
+    coach_showdown_decision,
+    render_coaching_output,
+)
+from vgc_bench.src.champions_ai.search import SearchConfig
+
+coaching = coach_showdown_decision(
+    battle,
+    profiles,
+    move_profiles,
+    chosen_action=proposed_joint_action,
+    search_config=SearchConfig(depth=2, max_simulations=2000),
+    tracker=opponent_habits,
+    context_key=current_context,
+    habit_weight=0.3,  # Explicit prototype blend, not a learned confidence.
+)
+print(render_coaching_output(coaching))
+```
+
+The wrappers default to bounded depth-two search. Pass `SearchConfig(depth=1)`
+for one-turn coaching. Omit `chosen_action` for advice before choosing a plan.
+The proposed action must be in the evaluated legal joint-action set. The
+comparison concerns the two actions together, not two independent move grades.
+
+Call the decision engine before the current turn resolves, and before recording
+the opponent's current response in the habit tracker. Only already revealed
+information, prior habit observations and explicit hidden-set hypotheses belong
+in the inputs. The coaching builder accepts the saved `DecisionReport`, never
+a later battle state or tracker. Frozen snapshots, metrics and habit estimates
+preserve the original grade if later results or observations change. Input
+collection is still responsible for respecting this timing boundary.
+
+For an existing decision call, pass `include_coaching_metrics=True` to
+`rank_decision` / `rank_showdown_decision`, then use
+`build_coaching_report(report, proposed_joint_action)`. Reusing that report for
+another evaluated plan does not rerun search or obtain later information. Normal
+bot calls retain their existing behavior and do not aggregate coaching metrics.
+
+### Probabilities and evidence
+
+The report separates the multi-turn expected position score from **this-turn**
+weighted event odds: at least one new opposing KO, at least one new own faint,
+survival of the starting active Pokemon, and Tailwind active at turn end. It also
+exposes individual opposing KO and starting-player survival probabilities. A
+successful switch counts as survival, even if that Pokemon ends on the bench.
+Previously fainted Pokemon are excluded from new-KO events. Forced-replacement
+and switch-entry limitations of the underlying simulator still apply.
+
+These are conditional model estimates: opponent response probabilities are
+multiplied by hidden-world and enabled-RNG outcome probabilities. Missing
+simulations or incomplete/non-finite probability mass cause an error. Events
+are computed from final states, so merging equivalent states is safe. Hit/miss
+or Protect activation probabilities are not inferred from representative logs,
+which can lose event history during state merging. Disabled RNG branches are
+identified explicitly. There is no undifferentiated "move success rate" and no
+position-score-to-win-percent conversion.
+
+Opponent reads group the existing joint behavior categories and report their
+modeled probability, baseline weight, observed count / comparable observation
+count, explicit habit blend, and candidate sources. No history means baseline
+weights only. Future search responses currently use neutral continuation priors;
+root habit evidence does not make those future priors learned optimal play.
+
+### Provisional grading
+
+Until calibration, every assigned grade is marked **provisional**. It measures
+the expected position-score loss versus the best nonblocked action found among
+the evaluated candidates. It does not measure actual battle-win loss or prove
+that the strongest possible action was found. The top label means zero modeled
+score loss, rather than demonstrated tactical brilliance. Ties receive the same
+grade; adding a weaker candidate cannot inflate another plan's grade.
+
+The prototype reference unit is `pokemon_alive + total_hp_fraction` from the
+active `PositionWeights`: 125 points with the default weights. The default
+`ProvisionalGradeRubric` uses the following explicit tuning bands. These bands
+are development settings, not empirically calibrated thresholds; replace them
+after replay/simulation benchmarks and value-model calibration.
+
+| Grade | Maximum loss in reference units | Default maximum point loss |
+| --- | ---: | ---: |
+| Stupendous | 0 | 0 |
+| Amazing | 0.02 | 2.5 |
+| Outstanding | 0.05 | 6.25 |
+| Awesome | 0.10 | 12.5 |
+| Great | 0.20 | 25 |
+| Good | 0.35 | 43.75 |
+| Ok | 0.50 | 62.5 |
+| Mistake | 0.75 | 93.75 |
+| Miss | 1.00 | 125 |
+| Throwing | Greater than 1.00 | Greater than 125 |
+
+An unsimulated rule-blocked action is explained but unrated. A simulated
+dominated action retains its comparison score and provisional grade. Fewer
+than two simulated plans, or no nonblocked recommendation, leave grades
+unavailable. Search budget exhaustion, shorter-horizon leaves and fixed RNG
+assumptions are displayed rather than hidden behind a grade. The next work is
+live input/display integration, fuller mechanics coverage, value and grade
+calibration, and replay-based validation of opponent reads.

@@ -18,6 +18,11 @@ from typing import Callable
 from poke_env.battle import DoubleBattle
 
 from vgc_bench.src.champions_ai.actions import JointAction
+from vgc_bench.src.champions_ai.coaching_metrics import (
+    TurnOutcomeMetrics,
+    build_turn_outcome_metrics,
+    probability_assumptions,
+)
 from vgc_bench.src.champions_ai.guards import (
     GuardCode,
     GuardFinding,
@@ -27,6 +32,11 @@ from vgc_bench.src.champions_ai.guards import (
     is_guaranteed_match_loss,
     strictly_dominated_findings,
 )
+from vgc_bench.src.champions_ai.hidden_scenarios import (
+    HiddenStateScenario,
+    hidden_state_scenarios,
+)
+from vgc_bench.src.champions_ai.hidden_sets import SetHypothesis
 from vgc_bench.src.champions_ai.inputs.showdown import (
     decision_snapshot_from_showdown,
     exact_turn_state_from_showdown,
@@ -34,11 +44,6 @@ from vgc_bench.src.champions_ai.inputs.showdown import (
 from vgc_bench.src.champions_ai.inputs.showdown_actions import (
     legal_joint_actions_from_showdown,
 )
-from vgc_bench.src.champions_ai.hidden_scenarios import (
-    HiddenStateScenario,
-    hidden_state_scenarios,
-)
-from vgc_bench.src.champions_ai.hidden_sets import SetHypothesis
 from vgc_bench.src.champions_ai.matchup import CombatantProfile, MoveProfile
 from vgc_bench.src.champions_ai.mechanics_evaluator import (
     MechanicsResponseAnalysis,
@@ -95,6 +100,12 @@ class DecisionReport:
     findings: tuple[GuardFinding, ...]
     model: str = "mechanics_decision_pipeline_v0"
     search_diagnostics: SearchDiagnostics | None = None
+    snapshot: DecisionSnapshot | None = None
+    turn_metrics: tuple[TurnOutcomeMetrics, ...] = ()
+    probability_assumptions: tuple[str, ...] = ()
+    grade_reference_points: float = 125.0
+    habit_weight: float = 0.0
+    habit_context: str | None = None
 
     @property
     def recommendation(self) -> DecisionOption | None:
@@ -131,19 +142,15 @@ def _guaranteed_loss_findings(
 
     evaluations_by_action: dict[JointAction, dict[tuple, bool]] = {}
     for evaluation in analysis.pair_evaluations:
-        evaluations_by_action.setdefault(
-            evaluation.our_action,
-            {},
-        )[evaluation.opponent_action.key] = is_guaranteed_match_loss(evaluation)
+        evaluations_by_action.setdefault(evaluation.our_action, {})[
+            evaluation.opponent_action.key
+        ] = is_guaranteed_match_loss(evaluation)
 
     findings: list[GuardFinding] = []
     for action, response_results in evaluations_by_action.items():
         if not positive_responses.issubset(response_results.keys()):
             continue
-        if all(
-            response_results[response_key]
-            for response_key in positive_responses
-        ):
+        if all(response_results[response_key] for response_key in positive_responses):
             findings.append(
                 GuardFinding(
                     code=GuardCode.GUARANTEED_MATCH_LOSS,
@@ -194,10 +201,9 @@ def rank_decision(
     branching_policy: BranchingPolicy | None = None,
     position_weights: PositionWeights | None = None,
     search_config: SearchConfig | None = None,
-    scenario_provider: Callable[
-        [JointAction],
-        tuple[HiddenStateScenario, ...],
-    ] | None = None,
+    include_coaching_metrics: bool = False,
+    scenario_provider: Callable[[JointAction], tuple[HiddenStateScenario, ...]]
+    | None = None,
     gen: int = 9,
 ) -> DecisionReport:
     """Run the complete current Champions AI ranking pipeline."""
@@ -215,9 +221,7 @@ def rank_decision(
     )
     rule_blocked = blocked_actions(rule_findings)
     simulation_actions = tuple(
-        action
-        for action in actions
-        if action not in rule_blocked
+        action for action in actions if action not in rule_blocked
     )
 
     opponent_estimates = estimate_action_probabilities(
@@ -237,9 +241,7 @@ def rank_decision(
                 best_case_value=None,
                 blocked=True,
                 findings=tuple(
-                    finding
-                    for finding in rule_findings
-                    if finding.action == action
+                    finding for finding in rule_findings if finding.action == action
                 ),
             )
             for action in actions
@@ -250,6 +252,12 @@ def rank_decision(
             opponent_estimates=opponent_estimates,
             response_summaries=(),
             findings=rule_findings,
+            snapshot=snapshot,
+            probability_assumptions=probability_assumptions(branching_policy),
+            grade_reference_points=(position_weights or PositionWeights()).pokemon_alive
+            + (position_weights or PositionWeights()).total_hp_fraction,
+            habit_weight=habit_weight,
+            habit_context=context_key,
         )
 
     if search_config is not None and search_config.depth > 1:
@@ -261,9 +269,10 @@ def rank_decision(
             def prepared_scenarios(action: JointAction):
                 if action.key not in scenario_cache:
                     scenario_cache[action.key] = tuple(
-                        replace(scenario, state=prepare_search_state(
-                            snapshot, scenario.state
-                        ))
+                        replace(
+                            scenario,
+                            state=prepare_search_state(snapshot, scenario.state),
+                        )
                         for scenario in raw_provider(action)
                     )
                 return scenario_cache[action.key]
@@ -282,11 +291,21 @@ def rank_decision(
         gen=gen,
     )
 
+    turn_metrics = (
+        build_turn_outcome_metrics(snapshot, analysis, opponent_estimates)
+        if include_coaching_metrics
+        else ()
+    )
     search_diagnostics = None
     if search_config is not None:
         search = build_search_analysis(
-            snapshot, exact_state, analysis, simulation_actions,
-            opponent_estimates, speed_states, move_profiles,
+            snapshot,
+            exact_state,
+            analysis,
+            simulation_actions,
+            opponent_estimates,
+            speed_states,
+            move_profiles,
             config=search_config,
             branching_policy=branching_policy,
             position_weights=position_weights,
@@ -296,27 +315,13 @@ def rank_decision(
         analysis = search.analysis
         search_diagnostics = search.diagnostics
     dominance_findings = strictly_dominated_findings(analysis.summaries)
-    loss_findings = _guaranteed_loss_findings(
-        analysis,
-        opponent_estimates,
-    )
-    all_findings = (
-        rule_findings
-        + dominance_findings
-        + loss_findings
-    )
+    loss_findings = _guaranteed_loss_findings(analysis, opponent_estimates)
+    all_findings = rule_findings + dominance_findings + loss_findings
     all_blocked = blocked_actions(all_findings)
 
-    summary_by_action = {
-        summary.our_action: summary
-        for summary in analysis.summaries
-    }
+    summary_by_action = {summary.our_action: summary for summary in analysis.summaries}
     findings_by_action = {
-        action: tuple(
-            finding
-            for finding in all_findings
-            if finding.action == action
-        )
+        action: tuple(finding for finding in all_findings if finding.action == action)
         for action in actions
     }
 
@@ -371,11 +376,17 @@ def rank_decision(
         findings=all_findings,
         model=(
             "mechanics_search_pipeline_v1"
-            if search_diagnostics is not None
-            and search_diagnostics.completed_depth > 1
+            if search_diagnostics is not None and search_diagnostics.completed_depth > 1
             else "mechanics_decision_pipeline_v0"
         ),
         search_diagnostics=search_diagnostics,
+        snapshot=snapshot,
+        turn_metrics=turn_metrics,
+        probability_assumptions=probability_assumptions(branching_policy),
+        grade_reference_points=(position_weights or PositionWeights()).pokemon_alive
+        + (position_weights or PositionWeights()).total_hp_fraction,
+        habit_weight=habit_weight,
+        habit_context=context_key,
     )
 
 
@@ -399,6 +410,7 @@ def rank_showdown_decision(
     branching_policy: BranchingPolicy | None = None,
     position_weights: PositionWeights | None = None,
     search_config: SearchConfig | None = None,
+    include_coaching_metrics: bool = False,
     gen: int = 9,
 ) -> DecisionReport:
     """Build live Showdown inputs and run one end-to-end decision calculation.
@@ -410,13 +422,9 @@ def rank_showdown_decision(
 
     legal_actions = tuple(legal_joint_actions_from_showdown(battle))
     snapshot = decision_snapshot_from_showdown(
-        battle,
-        legal_actions=tuple(action.label for action in legal_actions),
+        battle, legal_actions=tuple(action.label for action in legal_actions)
     )
-    exact_state = exact_turn_state_from_showdown(
-        battle,
-        profiles,
-    )
+    exact_state = exact_turn_state_from_showdown(battle, profiles)
 
     if opponent_candidates is None:
         opponent_candidates = generate_opponent_action_candidates(
@@ -439,14 +447,16 @@ def rank_showdown_decision(
 
     scenario_provider = None
     if hidden_hypotheses:
-        scenario_provider = lambda opponent_action: hidden_state_scenarios(
-            snapshot,
-            exact_state,
-            opponent_action,
-            hidden_hypotheses,
-            speed_states,
-            max_scenarios=max_hidden_scenarios,
-        )
+
+        def scenario_provider(opponent_action):
+            return hidden_state_scenarios(
+                snapshot,
+                exact_state,
+                opponent_action,
+                hidden_hypotheses,
+                speed_states,
+                max_scenarios=max_hidden_scenarios,
+            )
 
     return rank_decision(
         snapshot,
@@ -461,6 +471,7 @@ def rank_showdown_decision(
         branching_policy=branching_policy,
         position_weights=position_weights,
         search_config=search_config,
+        include_coaching_metrics=include_coaching_metrics,
         scenario_provider=scenario_provider,
         gen=gen,
     )
