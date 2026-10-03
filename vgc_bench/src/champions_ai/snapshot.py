@@ -17,6 +17,7 @@ class PokemonSnapshot:
     ability: str | None
     stat_stages: tuple[tuple[str, int], ...]
     protect_streak: int
+    first_turn: bool | None = None
 
     @classmethod
     def from_state(cls, pokemon: PokemonState) -> "PokemonSnapshot":
@@ -31,6 +32,7 @@ class PokemonSnapshot:
             ability=pokemon.ability,
             stat_stages=tuple(sorted(pokemon.stat_stages.items())),
             protect_streak=pokemon.protect_streak,
+            first_turn=pokemon.first_turn,
         )
 
 
