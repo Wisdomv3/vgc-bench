@@ -29,6 +29,14 @@ from vgc_bench.src.champions_ai.turn_simulator import ExactTurnState
 
 
 @dataclass(frozen=True)
+class MechanicsResponseAnalysis:
+    """Response matrix plus the exact action-pair simulations behind it."""
+
+    summaries: tuple[ActionResponseSummary, ...]
+    pair_evaluations: tuple["ActionPairEvaluation", ...]
+
+
+@dataclass(frozen=True)
 class ActionPairEvaluation:
     """Expected simulated value for one our-action/opponent-action pairing."""
 
@@ -103,6 +111,62 @@ def evaluate_action_pair(
     )
 
 
+def build_mechanics_response_analysis(
+    initial_state: ExactTurnState,
+    our_actions: tuple[JointAction, ...],
+    opponent_estimates: tuple[ActionProbability, ...],
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
+    *,
+    branching_policy: BranchingPolicy | None = None,
+    position_weights: PositionWeights | None = None,
+    gen: int = 9,
+) -> MechanicsResponseAnalysis:
+    """Evaluate the full action matrix once and retain every pair simulation."""
+
+    pair_evaluations: dict[
+        tuple[tuple, tuple],
+        ActionPairEvaluation,
+    ] = {}
+
+    def evaluator(
+        our_action: JointAction,
+        opponent_action: JointAction,
+    ) -> float:
+        key = (our_action.key, opponent_action.key)
+        if key not in pair_evaluations:
+            pair_evaluations[key] = evaluate_action_pair(
+                initial_state,
+                our_action,
+                opponent_action,
+                speed_states,
+                move_profiles,
+                branching_policy=branching_policy,
+                position_weights=position_weights,
+                gen=gen,
+            )
+        return pair_evaluations[key].expected_score_delta
+
+    summaries = build_response_matrix(
+        our_actions,
+        opponent_estimates,
+        evaluator,
+    )
+
+    ordered_pairs = tuple(
+        pair_evaluations[
+            (summary.our_action.key, cell.opponent_action.key)
+        ]
+        for summary in summaries
+        for cell in summary.cells
+    )
+
+    return MechanicsResponseAnalysis(
+        summaries=summaries,
+        pair_evaluations=ordered_pairs,
+    )
+
+
 def build_mechanics_response_matrix(
     initial_state: ExactTurnState,
     our_actions: tuple[JointAction, ...],
@@ -116,28 +180,13 @@ def build_mechanics_response_matrix(
 ) -> tuple[ActionResponseSummary, ...]:
     """Rank our actions using simulated expected position-score change."""
 
-    cache: dict[tuple[tuple, tuple], float] = {}
-
-    def evaluator(
-        our_action: JointAction,
-        opponent_action: JointAction,
-    ) -> float:
-        key = (our_action.key, opponent_action.key)
-        if key not in cache:
-            cache[key] = evaluate_action_pair(
-                initial_state,
-                our_action,
-                opponent_action,
-                speed_states,
-                move_profiles,
-                branching_policy=branching_policy,
-                position_weights=position_weights,
-                gen=gen,
-            ).expected_score_delta
-        return cache[key]
-
-    return build_response_matrix(
+    return build_mechanics_response_analysis(
+        initial_state,
         our_actions,
         opponent_estimates,
-        evaluator,
-    )
+        speed_states,
+        move_profiles,
+        branching_policy=branching_policy,
+        position_weights=position_weights,
+        gen=gen,
+    ).summaries
