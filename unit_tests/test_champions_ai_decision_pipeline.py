@@ -195,6 +195,13 @@ def _protect():
     )
 
 
+def _player_pass():
+    return _joint(
+        _pass(0, "garchomp"),
+        _pass(1, "whimsicott"),
+    )
+
+
 def _opponent_pass():
     return _joint(
         _pass(0, "salamence"),
@@ -298,7 +305,7 @@ def test_pipeline_preserves_habit_weighted_opponent_distribution() -> None:
     tracker = OpponentHabitTracker()
     tracker.record(
         "threatened",
-        "protect+passive",
+        "passive+protect",
     )
 
     report = rank_decision(
@@ -331,7 +338,7 @@ def test_pipeline_preserves_habit_weighted_opponent_distribution() -> None:
         for estimate in report.opponent_estimates
     }
     assert sum(by_behavior.values()) == pytest.approx(1.0)
-    assert by_behavior["protect+passive"] == pytest.approx(0.5)
+    assert by_behavior["passive+protect"] == pytest.approx(0.5)
     assert by_behavior["passive+targeted_move"] == pytest.approx(0.5)
 
 
@@ -349,7 +356,7 @@ def test_pipeline_blocks_action_that_guarantees_immediate_match_loss() -> None:
     report = rank_decision(
         _snapshot(),
         state,
-        (_opponent_pass(),),
+        (_player_pass(),),
         (OpponentActionCandidate(opponent_spread),),
         _speeds(),
         {
