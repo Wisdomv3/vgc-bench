@@ -29,7 +29,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Build Fake Out / Protect / field-condition trackers.
 - [x] Enumerate legal joint actions.
 - [ ] Add rule-based catastrophic-error guards.
-- [ ] Rank candidate actions with a heuristic scorer.
+- [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
 - [ ] Add hidden-set sampling and deeper search.
