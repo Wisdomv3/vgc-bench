@@ -18,6 +18,13 @@ from typing import TypeAlias
 from poke_env.battle import Move, MoveCategory
 
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction, SlotAction
+from vgc_bench.src.champions_ai.field_mechanics import (
+    bypasses_redirection,
+    move_can_be_redirected,
+    powder_redirection_immune,
+    psychic_terrain_blocks_priority,
+    wide_guard_blocks,
+)
 from vgc_bench.src.champions_ai.matchup import (
     CombatantProfile,
     MoveProfile,
@@ -47,6 +54,11 @@ PROTECT_BLOCK_MOVES = {
     "silktrap",
 }
 
+STALL_MOVES = PROTECT_BLOCK_MOVES | {
+    "endure",
+    "wideguard",
+}
+
 RandomChoiceValue: TypeAlias = bool | int | str
 RandomChoiceKey: TypeAlias = tuple[str, ...]
 
@@ -56,6 +68,9 @@ class SimulationEventType(str, Enum):
     PROTECT = "protect"
     PROTECT_FAILED = "protect_failed"
     PROTECT_BROKEN = "protect_broken"
+    WIDE_GUARD = "wide_guard"
+    REDIRECT = "redirect"
+    PRIORITY_BLOCKED = "priority_blocked"
     FIELD = "field"
     DAMAGE = "damage"
     MISS = "miss"
@@ -109,6 +124,7 @@ class ExactTurnState:
     trick_room: bool = False
     tailwind_sides: set[TurnSide] = field(default_factory=set)
     protect_streaks: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
         return ExactTurnState(
@@ -119,6 +135,7 @@ class ExactTurnState:
             trick_room=self.trick_room,
             tailwind_sides=set(self.tailwind_sides),
             protect_streaks=dict(self.protect_streaks),
+            field_conditions=set(self.field_conditions),
         )
 
     def profile(self, side: TurnSide, name: str) -> CombatantProfile:
