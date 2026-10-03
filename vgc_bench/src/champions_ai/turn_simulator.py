@@ -3390,6 +3390,11 @@ def simulate_turn(
     wide_guard_sides: set[TurnSide] = set()
     redirections: dict[TurnSide, tuple[str, str]] = {}
     flinched: set[tuple[TurnSide, str]] = set()
+    torment_blocked_moves = {
+        key: move_id
+        for key in state.tormented
+        if (move_id := state.last_moves.get(key)) not in {None, "struggle"}
+    }
     events: list[SimulationEvent] = []
 
     while any(action is not None for action in our_pending + opponent_pending):
@@ -3450,6 +3455,7 @@ def simulate_turn(
                 wide_guard_sides,
                 redirections,
                 flinched,
+                torment_blocked_moves,
                 move_profiles,
                 config,
                 scheduled.side,
