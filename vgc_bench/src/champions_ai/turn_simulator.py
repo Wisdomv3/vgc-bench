@@ -1626,30 +1626,32 @@ def _execute_move(
         spread=move_profile.spread and len(targets) > 1,
     )
 
-    landed_hit = False
+    total_damage_dealt = 0
     for target_side, target_name in targets:
         if state.profile(target_side, target_name).current_hp <= 0:
             continue
-        landed_hit = (
-            _apply_damage(
-                state,
-                speed_states,
-                events,
-                flinched,
-                side=side,
-                actor=actor,
-                move_profile=effective_move_profile,
-                target_side=target_side,
-                target_name=target_name,
-                protected=protected,
-                wide_guard_sides=wide_guard_sides,
-                config=config,
-                gen=gen,
-            )
-            or landed_hit
+
+        total_damage_dealt += _apply_damage(
+            state,
+            speed_states,
+            events,
+            flinched,
+            side=side,
+            actor=actor,
+            move_profile=effective_move_profile,
+            target_side=target_side,
+            target_name=target_name,
+            protected=protected,
+            wide_guard_sides=wide_guard_sides,
+            config=config,
+            gen=gen,
         )
 
-    if landed_hit and move.self_boost:
+    if (
+        total_damage_dealt > 0
+        and state.profile(side, actor).current_hp > 0
+        and move.self_boost
+    ):
         _apply_boosts(
             state,
             speed_states,
@@ -1661,6 +1663,23 @@ def _execute_move(
             move_id=move_id,
             boosts=move.self_boost,
         )
+
+    _apply_move_recoil(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        total_damage_dealt=total_damage_dealt,
+    )
+    _apply_life_orb_recoil(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        total_damage_dealt=total_damage_dealt,
+    )
 
 
 def _choose_speed_tie(
