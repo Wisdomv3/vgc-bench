@@ -131,6 +131,7 @@ def _state_signature(state: ExactTurnState) -> tuple:
         state.trick_room,
         tailwind,
         protect_streaks,
+        tuple(sorted(state.field_conditions)),
     )
 
 
