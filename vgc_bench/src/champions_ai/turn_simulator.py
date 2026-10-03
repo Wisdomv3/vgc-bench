@@ -1927,6 +1927,21 @@ def _execute_move(
     move_id = normalize_move_id(action.move)
     move = Move(move_id, gen)
 
+    volatile_key = (side, actor)
+    if volatile_key in state.must_recharge:
+        state.must_recharge.discard(volatile_key)
+        state.protect_streaks[volatile_key] = 0
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.RECHARGE,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=f"{actor} must recharge and cannot move.",
+            )
+        )
+        return
+
     if not _sleep_or_freeze_allows_move(
         state,
         speed_states,
@@ -1952,6 +1967,17 @@ def _execute_move(
                 detail=f"{actor} flinched and could not move.",
             )
         )
+        return
+
+    if not _confusion_allows_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        config=config,
+    ):
+        state.protect_streaks[(side, actor)] = 0
         return
 
     if not _paralysis_allows_move(
