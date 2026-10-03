@@ -8,11 +8,9 @@ Currently supported probability branches:
 - independent damage rolls, grouped by identical damage values;
 - move accuracy for each target;
 - modern critical-hit odds;
+- damaging-move secondary effects, including flinches and stat/status effects;
 - repeated Protect/Detect-style success odds;
 - exact Speed ties.
-
-Secondary effects and flinches are intentionally left for the next mechanics
-pass instead of being approximated here.
 """
 
 from dataclasses import dataclass
@@ -41,6 +39,7 @@ class BranchingPolicy:
     branch_damage_rolls: bool = True
     branch_accuracy: bool = True
     branch_critical_hits: bool = True
+    branch_secondary_effects: bool = True
     branch_protect: bool = True
     branch_speed_ties: bool = True
     fixed_damage_roll_index: int = 7
@@ -209,6 +208,7 @@ def simulate_turn_distribution(
             branch_damage_rolls=policy.branch_damage_rolls,
             branch_accuracy=policy.branch_accuracy,
             branch_critical_hits=policy.branch_critical_hits,
+            branch_secondary_effects=policy.branch_secondary_effects,
             branch_protect=policy.branch_protect,
             branch_speed_ties=policy.branch_speed_ties,
         )
