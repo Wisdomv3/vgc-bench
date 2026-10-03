@@ -9,6 +9,7 @@ Currently supported probability branches:
 - move accuracy for each target;
 - modern critical-hit odds;
 - damaging-move secondary effects, including flinches and stat/status effects;
+- before-move paralysis, sleep, and freeze checks;
 - repeated Protect/Detect-style success odds;
 - exact Speed ties.
 """
@@ -40,6 +41,7 @@ class BranchingPolicy:
     branch_accuracy: bool = True
     branch_critical_hits: bool = True
     branch_secondary_effects: bool = True
+    branch_before_move_status: bool = True
     branch_protect: bool = True
     branch_speed_ties: bool = True
     fixed_damage_roll_index: int = 7
@@ -134,6 +136,16 @@ def _state_signature(state: ExactTurnState) -> tuple:
             if stage
         )
     )
+    sleep_turns = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                turns,
+            )
+            for (side, name), turns in state.sleep_turns.items()
+        )
+    )
     return (
         profiles,
         active_slots,
@@ -143,6 +155,7 @@ def _state_signature(state: ExactTurnState) -> tuple:
         tailwind,
         protect_streaks,
         toxic_stages,
+        sleep_turns,
         tuple(sorted(state.field_conditions)),
     )
 
@@ -222,6 +235,7 @@ def simulate_turn_distribution(
             branch_accuracy=policy.branch_accuracy,
             branch_critical_hits=policy.branch_critical_hits,
             branch_secondary_effects=policy.branch_secondary_effects,
+            branch_before_move_status=policy.branch_before_move_status,
             branch_protect=policy.branch_protect,
             branch_speed_ties=policy.branch_speed_ties,
         )
