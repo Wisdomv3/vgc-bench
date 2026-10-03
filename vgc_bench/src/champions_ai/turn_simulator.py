@@ -2392,7 +2392,14 @@ def _execute_restriction_status_move(
     gen: int,
 ) -> bool:
     move_id = move.id
-    if move_id not in {"disable", "taunt", "encore", "imprison"}:
+    if move_id not in {
+        "disable",
+        "taunt",
+        "encore",
+        "imprison",
+        "torment",
+        "attract",
+    }:
         return False
 
     if move_id == "imprison":
@@ -2544,6 +2551,33 @@ def _execute_restriction_status_move(
     elif move_id == "taunt":
         state.taunt_turns[target_key] = 3
         detail = f"{target_name} was taunted."
+
+    elif move_id == "torment":
+        state.tormented.add(target_key)
+        detail = f"{target_name} was subjected to Torment."
+
+    elif move_id == "attract":
+        attacker_gender = _gender_code(attacker)
+        target_gender = _gender_code(target)
+        compatible = (
+            (attacker_gender == "m" and target_gender == "f")
+            or (attacker_gender == "f" and target_gender == "m")
+        )
+        if not compatible:
+            events.append(
+                SimulationEvent(
+                    type=SimulationEventType.SKIPPED,
+                    side=side,
+                    actor=actor,
+                    move=move_id,
+                    target=target_name,
+                    detail="Attract failed because the genders are incompatible.",
+                )
+            )
+            return True
+
+        state.attractions[target_key] = (side, actor)
+        detail = f"{target_name} became attracted to {actor}."
 
     else:
         last_move = state.last_moves.get(target_key)
