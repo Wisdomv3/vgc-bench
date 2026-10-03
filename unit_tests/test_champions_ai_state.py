@@ -145,3 +145,32 @@ def test_same_events_give_same_state_regardless_of_input_source() -> None:
     showdown_snapshot = DecisionSnapshot.from_state(showdown)
 
     assert manual_snapshot.opponent == showdown_snapshot.opponent
+
+
+def test_first_turn_eligibility_is_tracked_in_snapshot() -> None:
+    state = BattleState()
+    state.apply(
+        BattleEvent(
+            type="switch_in",
+            side="player",
+            slot=0,
+            pokemon="Rillaboom",
+        )
+    )
+    state.apply(
+        BattleEvent(
+            type="first_turn_changed",
+            side="player",
+            pokemon="Rillaboom",
+            value=False,
+        )
+    )
+
+    snapshot = DecisionSnapshot.from_state(state)
+    rillaboom = next(
+        pokemon
+        for pokemon in snapshot.player.pokemon
+        if pokemon.name == "Rillaboom"
+    )
+
+    assert rillaboom.first_turn is False
