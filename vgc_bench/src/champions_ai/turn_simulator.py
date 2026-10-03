@@ -447,9 +447,365 @@ def _damage_amount(
     return damage_rolls[config.damage_roll_index]
 
 
+def _sync_speed_profile(
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    side: TurnSide,
+    name: str,
+    profile: CombatantProfile,
+) -> None:
+    key = (side, name)
+    if key not in speed_states:
+        return
+
+    speed_states[key] = replace(
+        speed_states[key],
+        stage=int(profile.boosts.get("spe", 0)),
+        paralyzed=normalize_move_id(profile.status or "") == "par",
+    )
+
+
+def _status_allowed(profile: CombatantProfile, status: str) -> bool:
+    if profile.current_hp <= 0 or profile.status is not None:
+        return False
+
+    status = normalize_move_id(status)
+    types = {normalize_move_id(type_name) for type_name in profile.types}
+    ability = normalize_move_id(profile.ability or "")
+
+    if ability == "purifyingsalt":
+        return False
+
+    if status in {"psn", "tox"}:
+        if types.intersection({"poison", "steel"}):
+            return False
+        if ability in {"immunity", "pastelveil"}:
+            return False
+
+    if status == "par":
+        if "electric" in types:
+            return False
+        if ability == "limber":
+            return False
+
+    if status == "brn":
+        if "fire" in types:
+            return False
+        if ability in {"waterveil", "waterbubble", "thermalexchange"}:
+            return False
+
+    if status in {"frz", "frostbite"}:
+        if "ice" in types:
+            return False
+        if ability == "magmaarmor":
+            return False
+
+    if status == "slp" and ability in {"insomnia", "vitalspirit"}:
+        return False
+
+    return True
+
+
+def _apply_status(
+    state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    events: list[SimulationEvent],
+    *,
+    source_side: TurnSide,
+    source_name: str,
+    target_side: TurnSide,
+    target_name: str,
+    move_id: str,
+    status: str,
+) -> bool:
+    profile = state.profile(target_side, target_name)
+    status_id = normalize_move_id(status)
+    if not _status_allowed(profile, status_id):
+        return False
+
+    updated = replace(profile, status=status_id)
+    state.profiles[(target_side, target_name)] = updated
+    _sync_speed_profile(speed_states, target_side, target_name, updated)
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.STATUS,
+            side=source_side,
+            actor=source_name,
+            move=move_id,
+            target=target_name,
+            detail=f"{target_name} gained status {status_id}.",
+        )
+    )
+    return True
+
+
+def _apply_boosts(
+    state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    events: list[SimulationEvent],
+    *,
+    source_side: TurnSide,
+    source_name: str,
+    target_side: TurnSide,
+    target_name: str,
+    move_id: str,
+    boosts: dict[str, int],
+) -> bool:
+    profile = state.profile(target_side, target_name)
+    ability = normalize_move_id(profile.ability or "")
+    from_opponent = source_side is not target_side
+
+    updated_boosts = dict(profile.boosts)
+    applied: dict[str, int] = {}
+    lowered_by_opponent = False
+
+    for stat, delta in boosts.items():
+        if stat not in {"atk", "def", "spa", "spd", "spe", "accuracy", "evasion"}:
+            continue
+        if not isinstance(delta, int) or delta == 0:
+            continue
+
+        if (
+            delta < 0
+            and from_opponent
+            and ability in {"clearbody", "whitesmoke", "fullmetalbody"}
+        ):
+            continue
+
+        old_stage = int(updated_boosts.get(stat, 0))
+        new_stage = max(-6, min(6, old_stage + delta))
+        actual_delta = new_stage - old_stage
+        if actual_delta == 0:
+            continue
+
+        updated_boosts[stat] = new_stage
+        applied[stat] = actual_delta
+        if actual_delta < 0 and from_opponent:
+            lowered_by_opponent = True
+
+    if not applied:
+        return False
+
+    updated = replace(profile, boosts=updated_boosts)
+    state.profiles[(target_side, target_name)] = updated
+    _sync_speed_profile(speed_states, target_side, target_name, updated)
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.BOOST,
+            side=source_side,
+            actor=source_name,
+            move=move_id,
+            target=target_name,
+            detail=f"{target_name} stat changes: {applied}.",
+        )
+    )
+
+    if lowered_by_opponent:
+        reaction_stat = None
+        if ability == "defiant":
+            reaction_stat = "atk"
+        elif ability == "competitive":
+            reaction_stat = "spa"
+
+        if reaction_stat is not None:
+            reacted_profile = state.profile(target_side, target_name)
+            reacted_boosts = dict(reacted_profile.boosts)
+            old_stage = int(reacted_boosts.get(reaction_stat, 0))
+            new_stage = min(6, old_stage + 2)
+            if new_stage != old_stage:
+                reacted_boosts[reaction_stat] = new_stage
+                reacted_profile = replace(
+                    reacted_profile,
+                    boosts=reacted_boosts,
+                )
+                state.profiles[(target_side, target_name)] = reacted_profile
+                _sync_speed_profile(
+                    speed_states,
+                    target_side,
+                    target_name,
+                    reacted_profile,
+                )
+                events.append(
+                    SimulationEvent(
+                        type=SimulationEventType.BOOST,
+                        side=target_side,
+                        actor=target_name,
+                        move=ability,
+                        target=target_name,
+                        detail=(
+                            f"{ability} raised {target_name}'s "
+                            f"{reaction_stat} by {new_stage - old_stage}."
+                        ),
+                    )
+                )
+
+    return True
+
+
+def _secondary_blocked(
+    source_side: TurnSide,
+    target_side: TurnSide,
+    target: CombatantProfile,
+) -> bool:
+    if source_side is target_side:
+        return False
+    if normalize_move_id(target.item or "") == "covertcloak":
+        return True
+    return normalize_move_id(target.ability or "") == "shielddust"
+
+
+def _secondary_probability(
+    attacker: CombatantProfile,
+    secondary: dict,
+) -> float:
+    probability = float(secondary.get("chance", 100)) / 100.0
+    if normalize_move_id(attacker.ability or "") == "serenegrace":
+        probability = min(1.0, probability * 2.0)
+    return probability
+
+
+def _apply_secondary_effects(
+    state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    events: list[SimulationEvent],
+    flinched: set[tuple[TurnSide, str]],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    target_side: TurnSide,
+    target_name: str,
+    config: TurnSimulationConfig,
+) -> None:
+    attacker = state.profile(side, actor)
+    target = state.profile(target_side, target_name)
+
+    if target.current_hp <= 0 or _secondary_blocked(side, target_side, target):
+        return
+
+    for index, secondary in enumerate(move.secondary):
+        probability = _secondary_probability(attacker, secondary)
+
+        if probability < 1.0:
+            if not config.branch_secondary_effects:
+                continue
+            trigger_key = (
+                "secondary",
+                side.value,
+                actor,
+                move.id,
+                target_side.value,
+                target_name,
+                str(index),
+            )
+            triggered = _boolean_choice(config, trigger_key, probability)
+            if not triggered:
+                continue
+
+        volatile_status = normalize_move_id(secondary.get("volatileStatus", ""))
+        if volatile_status == "flinch":
+            target = state.profile(target_side, target_name)
+            if normalize_move_id(target.ability or "") != "innerfocus":
+                flinched.add((target_side, target_name))
+                events.append(
+                    SimulationEvent(
+                        type=SimulationEventType.FLINCH,
+                        side=side,
+                        actor=actor,
+                        move=move.id,
+                        target=target_name,
+                        detail=f"{target_name} was flinched.",
+                    )
+                )
+
+        status = secondary.get("status")
+        if isinstance(status, str):
+            _apply_status(
+                state,
+                speed_states,
+                events,
+                source_side=side,
+                source_name=actor,
+                target_side=target_side,
+                target_name=target_name,
+                move_id=move.id,
+                status=status,
+            )
+
+        boosts = secondary.get("boosts")
+        if isinstance(boosts, dict):
+            _apply_boosts(
+                state,
+                speed_states,
+                events,
+                source_side=side,
+                source_name=actor,
+                target_side=target_side,
+                target_name=target_name,
+                move_id=move.id,
+                boosts=boosts,
+            )
+
+        self_effect = secondary.get("self")
+        if isinstance(self_effect, dict):
+            self_boosts = self_effect.get("boosts")
+            if isinstance(self_boosts, dict):
+                _apply_boosts(
+                    state,
+                    speed_states,
+                    events,
+                    source_side=side,
+                    source_name=actor,
+                    target_side=side,
+                    target_name=actor,
+                    move_id=move.id,
+                    boosts=self_boosts,
+                )
+
+        # Dire Claw's data uses a custom onHit callback: if its 50% secondary
+        # triggers, poison/paralysis/sleep are selected uniformly.
+        if move.id == "direclaw" and "onHit" in secondary:
+            choice_key = (
+                "dire_claw_status",
+                side.value,
+                actor,
+                target_side.value,
+                target_name,
+            )
+            if config.branch_secondary_effects:
+                chosen_status = str(
+                    _choice(
+                        config,
+                        choice_key,
+                        (
+                            ("psn", 1.0 / 3.0),
+                            ("par", 1.0 / 3.0),
+                            ("slp", 1.0 / 3.0),
+                        ),
+                    )
+                )
+            else:
+                continue
+
+            _apply_status(
+                state,
+                speed_states,
+                events,
+                source_side=side,
+                source_name=actor,
+                target_side=target_side,
+                target_name=target_name,
+                move_id=move.id,
+                status=chosen_status,
+            )
+
+
 def _apply_damage(
     state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
     events: list[SimulationEvent],
+    flinched: set[tuple[TurnSide, str]],
     *,
     side: TurnSide,
     actor: str,
@@ -459,7 +815,7 @@ def _apply_damage(
     protected: set[tuple[TurnSide, str]],
     config: TurnSimulationConfig,
     gen: int,
-) -> None:
+) -> bool:
     attacker = state.profile(side, actor)
     defender = state.profile(target_side, target_name)
     move_id = normalize_move_id(move_profile.move_id)
@@ -490,7 +846,7 @@ def _apply_damage(
                     detail="Blocked by Protect-like protection.",
                 )
             )
-            return
+            return False
 
     if config.branch_accuracy:
         hit_key = (
@@ -520,7 +876,7 @@ def _apply_damage(
                 detail=f"{move_id} missed {target_name}.",
             )
         )
-        return
+        return False
 
     if config.branch_critical_hits:
         crit_key = (
@@ -594,6 +950,23 @@ def _apply_damage(
                 detail=f"{target_name} fainted.",
             )
         )
+        return damage > 0
+
+    if damage > 0:
+        _apply_secondary_effects(
+            state,
+            speed_states,
+            events,
+            flinched,
+            side=side,
+            actor=actor,
+            move=move,
+            target_side=target_side,
+            target_name=target_name,
+            config=config,
+        )
+
+    return damage > 0
 
 
 def _execute_switch(
