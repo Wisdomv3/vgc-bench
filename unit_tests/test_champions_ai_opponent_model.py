@@ -207,3 +207,174 @@ def test_invalid_habit_weight_is_rejected() -> None:
             (OpponentActionCandidate(action),),
             habit_weight=1.1,
         )
+
+
+def test_zero_baseline_observed_behavior_keeps_empirical_mass() -> None:
+    protect_attack = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+    double_attack = _joint(
+        _move(0, "salamence", "Draco Meteor", "garchomp"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+
+    tracker = OpponentHabitTracker()
+    tracker.record("threatened", "protect+targeted_move")
+
+    estimates = estimate_action_probabilities(
+        (
+            OpponentActionCandidate(protect_attack, prior_weight=0),
+            OpponentActionCandidate(double_attack, prior_weight=1),
+        ),
+        tracker=tracker,
+        context_key="threatened",
+        habit_weight=1.0,
+    )
+
+    by_behavior = {
+        estimate.candidate.behavior: estimate
+        for estimate in estimates
+    }
+
+    assert sum(
+        estimate.probability
+        for estimate in estimates
+    ) == pytest.approx(1.0)
+    assert by_behavior[
+        "protect+targeted_move"
+    ].baseline_probability == 0
+    assert by_behavior[
+        "protect+targeted_move"
+    ].empirical_probability == pytest.approx(1.0)
+    assert by_behavior[
+        "protect+targeted_move"
+    ].probability == pytest.approx(1.0)
+    assert by_behavior[
+        "targeted_move+targeted_move"
+    ].probability == pytest.approx(0.0)
+
+
+def test_zero_baseline_behavior_splits_empirical_mass_equally() -> None:
+    action_a = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+    action_b = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Dire Claw", "whimsicott"),
+    )
+    action_c = _joint(
+        _move(0, "salamence", "Draco Meteor", "garchomp"),
+        _move(1, "sneasler", "Dire Claw", "whimsicott"),
+    )
+
+    tracker = OpponentHabitTracker()
+    tracker.record("threatened", "protect+targeted_move")
+
+    estimates = estimate_action_probabilities(
+        (
+            OpponentActionCandidate(action_a, prior_weight=0),
+            OpponentActionCandidate(action_b, prior_weight=0),
+            OpponentActionCandidate(action_c, prior_weight=1),
+        ),
+        tracker=tracker,
+        context_key="threatened",
+        habit_weight=1.0,
+    )
+
+    protect = [
+        estimate
+        for estimate in estimates
+        if estimate.candidate.behavior == "protect+targeted_move"
+    ]
+
+    assert len(protect) == 2
+    assert all(
+        estimate.empirical_probability == pytest.approx(0.5)
+        for estimate in protect
+    )
+    assert all(
+        estimate.probability == pytest.approx(0.5)
+        for estimate in protect
+    )
+    assert sum(
+        estimate.probability
+        for estimate in estimates
+    ) == pytest.approx(1.0)
+
+
+def test_zero_baseline_habit_blend_remains_normalized() -> None:
+    protect_attack = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+    double_attack = _joint(
+        _move(0, "salamence", "Draco Meteor", "garchomp"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+
+    tracker = OpponentHabitTracker()
+    tracker.record("threatened", "protect+targeted_move")
+
+    estimates = estimate_action_probabilities(
+        (
+            OpponentActionCandidate(protect_attack, prior_weight=0),
+            OpponentActionCandidate(double_attack, prior_weight=1),
+        ),
+        tracker=tracker,
+        context_key="threatened",
+        habit_weight=0.25,
+    )
+
+    by_behavior = {
+        estimate.candidate.behavior: estimate.probability
+        for estimate in estimates
+    }
+
+    assert by_behavior["protect+targeted_move"] == pytest.approx(0.25)
+    assert by_behavior[
+        "targeted_move+targeted_move"
+    ] == pytest.approx(0.75)
+    assert sum(by_behavior.values()) == pytest.approx(1.0)
+
+
+def test_all_zero_priors_use_neutral_baseline() -> None:
+    action_a = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+    action_b = _joint(
+        _move(0, "salamence", "Draco Meteor", "garchomp"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+
+    estimates = estimate_action_probabilities(
+        (
+            OpponentActionCandidate(action_a, prior_weight=0),
+            OpponentActionCandidate(action_b, prior_weight=0),
+        )
+    )
+
+    assert all(
+        estimate.baseline_probability == pytest.approx(0.5)
+        for estimate in estimates
+    )
+    assert all(
+        estimate.probability == pytest.approx(0.5)
+        for estimate in estimates
+    )
+
+
+@pytest.mark.parametrize("prior_weight", [float("inf"), float("nan")])
+def test_nonfinite_prior_weight_is_rejected(prior_weight: float) -> None:
+    action = _joint(
+        _move(0, "salamence", "Protect"),
+        _move(1, "sneasler", "Close Combat", "garchomp"),
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        OpponentActionCandidate(
+            action,
+            prior_weight=prior_weight,
+        )
