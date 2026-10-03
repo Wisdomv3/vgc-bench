@@ -33,6 +33,7 @@ Before recommending any action, evaluate in this order:
 - [x] Enumerate legal joint actions.
 - [x] Add initial catastrophic-error guards for impossible Fake Out, repeated Protect risk, strictly dominated lines, and guaranteed immediate match loss.
 - [ ] Expand catastrophic guards for priority blocking, redirection, Wide Guard, recoil/contact punishment, and other format-specific failure modes.
+- [x] Add Psychic Terrain priority blocking, grounded checks, Wide Guard spread protection, Follow Me/Rage Powder redirection, and common redirection bypasses to the turn simulator.
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
