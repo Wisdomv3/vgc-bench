@@ -2530,6 +2530,22 @@ def _execute_restriction_status_move(
 
     target_key = (target_side, target_name)
 
+    if (
+        move_id in {"attract", "taunt"}
+        and normalize_move_id(target.ability or "") == "oblivious"
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail=f"{target_name}'s Oblivious blocked {move_id}.",
+            )
+        )
+        return True
+
     if move_id == "disable":
         last_move = state.last_moves.get(target_key)
         if last_move is None or last_move == "struggle":
