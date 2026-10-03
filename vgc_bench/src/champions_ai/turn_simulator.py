@@ -988,6 +988,7 @@ def _consume_turn_restrictions(
 
 def _apply_encore_override_to_pending(
     state: ExactTurnState,
+    side: TurnSide,
     pending: list[SlotAction | None],
 ) -> None:
     for index, action in enumerate(pending):
@@ -999,15 +1000,10 @@ def _apply_encore_override_to_pending(
         ):
             continue
 
-        key = None
-        for side in (TurnSide.PLAYER, TurnSide.OPPONENT):
-            if state.is_active(side, action.actor):
-                key = (side, action.actor)
-                break
-
-        if key is None:
+        if not state.is_active(side, action.actor):
             continue
 
+        key = (side, action.actor)
         encore = state.encore_locks.get(key)
         if encore is None:
             continue
