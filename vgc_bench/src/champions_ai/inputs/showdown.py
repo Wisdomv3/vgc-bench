@@ -8,6 +8,9 @@ from poke_env.battle import DoubleBattle, Field, SideCondition
 from poke_env.data import GenData
 
 from vgc_bench.src.champions_ai.events import BattleEvent
+from vgc_bench.src.champions_ai.inputs.showdown_actions import (
+    legal_joint_actions_from_showdown,
+)
 from vgc_bench.src.champions_ai.snapshot import DecisionSnapshot
 from vgc_bench.src.champions_ai.state import BattleState
 
@@ -256,9 +259,14 @@ def battle_state_from_showdown(battle: DoubleBattle) -> BattleState:
 
 def decision_snapshot_from_showdown(
     battle: DoubleBattle,
-    legal_actions: tuple[str, ...] = (),
+    legal_actions: tuple[str, ...] | None = None,
 ) -> DecisionSnapshot:
     """Freeze the current Showdown decision state for coaching/evaluation."""
+
+    if legal_actions is None:
+        legal_actions = tuple(
+            action.label for action in legal_joint_actions_from_showdown(battle)
+        )
 
     return DecisionSnapshot.from_state(
         battle_state_from_showdown(battle),
