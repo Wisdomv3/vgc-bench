@@ -24,7 +24,8 @@ Before recommending any action, evaluate in this order:
 - [x] Build a universal battle-state tracker.
 - [x] Build initial spread-damage threat detection.
 - [x] Add Pokemon Showdown structured-state input adapter.
-- [ ] Build exact damage-calculation layer and verify it against established damage-calculator outputs.
+- [ ] Build full exact damage-calculation layer and verify matchup outputs against established damage calculators.
+- [x] Build exact generation-9 core damage arithmetic and KO-probability utilities.
 - [x] Build initial effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
 - [x] Enumerate legal joint actions.
