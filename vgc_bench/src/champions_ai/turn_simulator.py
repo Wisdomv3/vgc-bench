@@ -857,6 +857,14 @@ def _apply_status(
 
     updated = replace(profile, status=status_id)
     state.profiles[(target_side, target_name)] = updated
+
+    status_key = (target_side, target_name)
+    if status_id == "slp":
+        # Zero means the 1-3-turn sleep duration has not been sampled yet.
+        state.sleep_turns[status_key] = 0
+    if status_id == "tox":
+        state.toxic_stages[status_key] = 0
+
     _sync_speed_profile(speed_states, target_side, target_name, updated)
 
     events.append(
@@ -870,6 +878,209 @@ def _apply_status(
         )
     )
     return True
+
+
+def _clear_status(
+    state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    name: str,
+    reason: str,
+) -> None:
+    profile = state.profile(side, name)
+    old_status = normalize_move_id(profile.status or "")
+    if not old_status:
+        return
+
+    updated = replace(profile, status=None)
+    state.profiles[(side, name)] = updated
+    state.sleep_turns.pop((side, name), None)
+    state.toxic_stages.pop((side, name), None)
+    _sync_speed_profile(speed_states, side, name, updated)
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.STATUS_CURED,
+            side=side,
+            actor=name,
+            target=name,
+            detail=f"{name} was cured of {old_status}: {reason}.",
+        )
+    )
+
+
+def _sleep_or_freeze_allows_move(
+    state: ExactTurnState,
+    speed_states: dict[tuple[TurnSide, str], SpeedState],
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    config: TurnSimulationConfig,
+) -> bool:
+    profile = state.profile(side, actor)
+    status = normalize_move_id(profile.status or "")
+    status_key = (side, actor)
+
+    if status == "slp":
+        if status_key not in state.sleep_turns:
+            raise UnsupportedTurnMechanic(
+                f"sleep duration is unknown for {side.value} {actor}"
+            )
+
+        remaining = state.sleep_turns[status_key]
+        if remaining == 0:
+            if not config.branch_before_move_status:
+                raise UnsupportedTurnMechanic(
+                    "sleep duration requires before-move status branching"
+                )
+            remaining = int(
+                _choice(
+                    config,
+                    (
+                        "sleep_duration",
+                        side.value,
+                        actor,
+                    ),
+                    (
+                        (2, 1.0 / 3.0),
+                        (3, 1.0 / 3.0),
+                        (4, 1.0 / 3.0),
+                    ),
+                )
+            )
+
+        decrement = (
+            2
+            if normalize_move_id(profile.ability or "") == "earlybird"
+            else 1
+        )
+        remaining -= decrement
+
+        if remaining <= 0:
+            state.sleep_turns[status_key] = 0
+            _clear_status(
+                state,
+                speed_states,
+                events,
+                side=side,
+                name=actor,
+                reason="woke up",
+            )
+            return True
+
+        state.sleep_turns[status_key] = remaining
+        if bool(move.entry.get("sleepUsable", False)):
+            return True
+
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=f"{actor} is asleep and cannot move.",
+            )
+        )
+        return False
+
+    if status == "frz":
+        flags = move.entry.get("flags", {})
+        if bool(flags.get("defrost", False)):
+            _clear_status(
+                state,
+                speed_states,
+                events,
+                side=side,
+                name=actor,
+                reason=f"{move.id} defrosted its user",
+            )
+            return True
+
+        if not config.branch_before_move_status:
+            raise UnsupportedTurnMechanic(
+                "freeze requires before-move status branching"
+            )
+
+        thawed = _boolean_choice(
+            config,
+            (
+                "freeze_thaw",
+                side.value,
+                actor,
+                move.id,
+            ),
+            1.0 / 5.0,
+        )
+        if thawed:
+            _clear_status(
+                state,
+                speed_states,
+                events,
+                side=side,
+                name=actor,
+                reason="random thaw",
+            )
+            return True
+
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=f"{actor} is frozen solid and cannot move.",
+            )
+        )
+        return False
+
+    return True
+
+
+def _paralysis_allows_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    config: TurnSimulationConfig,
+) -> bool:
+    profile = state.profile(side, actor)
+    if normalize_move_id(profile.status or "") != "par":
+        return True
+
+    if not config.branch_before_move_status:
+        raise UnsupportedTurnMechanic(
+            "paralysis requires before-move status branching"
+        )
+
+    fully_paralyzed = _boolean_choice(
+        config,
+        (
+            "full_paralysis",
+            side.value,
+            actor,
+            move.id,
+        ),
+        1.0 / 4.0,
+    )
+    if not fully_paralyzed:
+        return True
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.CANNOT_MOVE,
+            side=side,
+            actor=actor,
+            move=move.id,
+            detail=f"{actor} is fully paralyzed and cannot move.",
+        )
+    )
+    return False
 
 
 def _apply_boosts(
