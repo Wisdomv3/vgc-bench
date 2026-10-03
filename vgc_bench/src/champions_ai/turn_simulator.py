@@ -2005,6 +2005,12 @@ def _execute_switch(
     state.confusion_turns.pop((side, target), None)
     state.must_recharge.discard((side, actor))
     state.must_recharge.discard((side, target))
+    state.truant_loaf.discard((side, actor))
+    state.truant_loaf.discard((side, target))
+    state.choice_locks.pop((side, actor), None)
+    state.choice_locks.pop((side, target), None)
+    state.last_moves.pop((side, actor), None)
+    state.last_moves.pop((side, target), None)
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
@@ -2053,6 +2059,7 @@ def _execute_move(
     volatile_key = (side, actor)
     if volatile_key in state.must_recharge:
         state.must_recharge.discard(volatile_key)
+        state.truant_loaf.discard(volatile_key)
         state.protect_streaks[volatile_key] = 0
         events.append(
             SimulationEvent(
@@ -2065,6 +2072,16 @@ def _execute_move(
         )
         return
 
+    if not _selection_restriction_allows_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+    ):
+        state.protect_streaks[(side, actor)] = 0
+        return
+
     if not _sleep_or_freeze_allows_move(
         state,
         speed_states,
@@ -2073,6 +2090,16 @@ def _execute_move(
         actor=actor,
         move=move,
         config=config,
+    ):
+        state.protect_streaks[(side, actor)] = 0
+        return
+
+    if not _truant_allows_move(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
     ):
         state.protect_streaks[(side, actor)] = 0
         return
@@ -2113,6 +2140,13 @@ def _execute_move(
     ):
         state.protect_streaks[(side, actor)] = 0
         return
+
+    _record_committed_move(
+        state,
+        side=side,
+        actor=actor,
+        move=move,
+    )
 
     if move_id in STALL_MOVES:
         streak_key = (side, actor)
