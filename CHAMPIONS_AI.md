@@ -52,6 +52,7 @@ Before recommending any action, evaluate in this order:
 - [x] Harden opponent-action probability normalization, including zero-baseline empirical behaviors and non-finite prior rejection.
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
 - [x] Build an end-to-end decision pipeline combining live state, legal actions, opponent probabilities, probabilistic mechanics simulation, catastrophic guards, and ranked recommendations.
+- [x] Add a compact BEST PLAY live-output formatter with two slot actions, opponent-response watch line, and no more than two concise reasons.
 - [x] Add initial turn action ordering for switches, priority, Speed, Tailwind, Trick Room, and explicit Speed ties.
 - [x] Add deterministic turn simulator core for switches, Protect, targeted/spread damage, faint cancellation, Tailwind, Trick Room, Prankster, and Grassy Glide.
 - [x] Add probabilistic turn branching for damage rolls, accuracy, Speed ties, repeated Protect odds, and critical hits.
