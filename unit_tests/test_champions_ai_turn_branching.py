@@ -392,6 +392,13 @@ TACKLE = MoveProfile(
     move_type="normal",
 )
 
+CLOSE_COMBAT = MoveProfile(
+    move_id="closecombat",
+    base_power=120,
+    category="physical",
+    move_type="fighting",
+)
+
 
 def _secondary_only_policy(*, merge: bool = True) -> BranchingPolicy:
     return BranchingPolicy(
@@ -619,3 +626,30 @@ def test_dire_claw_branches_no_status_and_three_equal_statuses() -> None:
     assert by_status["psn"] == pytest.approx(1 / 6)
     assert by_status["par"] == pytest.approx(1 / 6)
     assert by_status["slp"] == pytest.approx(1 / 6)
+
+
+
+def test_close_combat_applies_deterministic_self_drops() -> None:
+    ours = _joint(
+        _move(0, "garchomp", "Close Combat", target_position=1),
+        _pass(1, "whimsicott"),
+    )
+    theirs = _joint(
+        _pass(0, "salamence"),
+        _pass(1, "sneasler"),
+    )
+
+    distribution = simulate_turn_distribution(
+        _state(),
+        ours,
+        theirs,
+        _speeds(garchomp=200),
+        _profiles((TurnSide.PLAYER, "garchomp", CLOSE_COMBAT)),
+        policy=_secondary_only_policy(),
+    )
+
+    attacker = distribution.outcomes[0].result.state.profile(
+        TurnSide.PLAYER, "garchomp"
+    )
+    assert attacker.boosts["def"] == -1
+    assert attacker.boosts["spd"] == -1
