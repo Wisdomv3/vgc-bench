@@ -123,6 +123,17 @@ def _state_signature(state: ExactTurnState) -> tuple:
             if streak
         )
     )
+    toxic_stages = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                stage,
+            )
+            for (side, name), stage in state.toxic_stages.items()
+            if stage
+        )
+    )
     return (
         profiles,
         active_slots,
@@ -131,6 +142,7 @@ def _state_signature(state: ExactTurnState) -> tuple:
         state.trick_room,
         tailwind,
         protect_streaks,
+        toxic_stages,
         tuple(sorted(state.field_conditions)),
     )
 
