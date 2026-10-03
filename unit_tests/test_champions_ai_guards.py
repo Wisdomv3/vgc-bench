@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction, SlotAction
 from vgc_bench.src.champions_ai.guards import (
     GuardCode,
@@ -9,6 +7,7 @@ from vgc_bench.src.champions_ai.guards import (
     is_guaranteed_match_loss,
     strictly_dominated_findings,
 )
+from vgc_bench.src.champions_ai.events import Side
 from vgc_bench.src.champions_ai.mechanics_evaluator import ActionPairEvaluation
 from vgc_bench.src.champions_ai.opponent_model import OpponentActionCandidate
 from vgc_bench.src.champions_ai.response_matrix import build_response_matrix
@@ -49,10 +48,7 @@ def _joint(first, second):
 def _snapshot(*, first_turn: bool | None, protect_streak: int = 0):
     state = BattleState()
     garchomp = state.get_or_create_pokemon(
-        __import__(
-            "vgc_bench.src.champions_ai.events",
-            fromlist=["Side"],
-        ).Side.PLAYER,
+        Side.PLAYER,
         "garchomp",
     )
     garchomp.active_slot = 0
@@ -61,10 +57,7 @@ def _snapshot(*, first_turn: bool | None, protect_streak: int = 0):
     state.player.active_slots[0] = "garchomp"
 
     partner = state.get_or_create_pokemon(
-        __import__(
-            "vgc_bench.src.champions_ai.events",
-            fromlist=["Side"],
-        ).Side.PLAYER,
+        Side.PLAYER,
         "whimsicott",
     )
     partner.active_slot = 1
