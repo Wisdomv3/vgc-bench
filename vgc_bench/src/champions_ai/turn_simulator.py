@@ -946,6 +946,166 @@ def _clear_status(
     )
 
 
+def _consume_turn_restrictions(
+    state: ExactTurnState,
+    key: tuple[TurnSide, str],
+) -> tuple[str | None, bool, str | None]:
+    """Return active move restrictions for this action, then tick one turn."""
+
+    disabled_move: str | None = None
+    taunted = False
+    encore_move: str | None = None
+
+    disabled = state.disabled_moves.get(key)
+    if disabled is not None:
+        disabled_move, remaining = disabled
+        remaining -= 1
+        if remaining <= 0:
+            state.disabled_moves.pop(key, None)
+        else:
+            state.disabled_moves[key] = (disabled_move, remaining)
+
+    remaining_taunt = state.taunt_turns.get(key)
+    if remaining_taunt is not None:
+        taunted = True
+        remaining_taunt -= 1
+        if remaining_taunt <= 0:
+            state.taunt_turns.pop(key, None)
+        else:
+            state.taunt_turns[key] = remaining_taunt
+
+    encore = state.encore_locks.get(key)
+    if encore is not None:
+        encore_move, remaining = encore
+        remaining -= 1
+        if remaining <= 0:
+            state.encore_locks.pop(key, None)
+        else:
+            state.encore_locks[key] = (encore_move, remaining)
+
+    return disabled_move, taunted, encore_move
+
+
+def _apply_encore_override_to_pending(
+    state: ExactTurnState,
+    pending: list[SlotAction | None],
+) -> None:
+    for index, action in enumerate(pending):
+        if (
+            action is None
+            or action.kind is not ActionKind.MOVE
+            or action.actor is None
+            or action.move is None
+        ):
+            continue
+
+        key = None
+        for side in (TurnSide.PLAYER, TurnSide.OPPONENT):
+            if state.is_active(side, action.actor):
+                key = (side, action.actor)
+                break
+
+        if key is None:
+            continue
+
+        encore = state.encore_locks.get(key)
+        if encore is None:
+            continue
+
+        locked_move, _remaining = encore
+        if normalize_move_id(action.move) == locked_move:
+            continue
+
+        pending[index] = replace(
+            action,
+            move=locked_move,
+        )
+
+
+def _imprison_blocks_move(
+    state: ExactTurnState,
+    *,
+    side: TurnSide,
+    move_id: str,
+) -> str | None:
+    foe_side = _other_side(side)
+
+    for imprison_side, imprisoner in tuple(state.imprison_users):
+        if imprison_side is not foe_side:
+            continue
+        if (
+            not state.is_active(imprison_side, imprisoner)
+            or state.profile(imprison_side, imprisoner).current_hp <= 0
+        ):
+            continue
+
+        if move_id in state.known_moves.get((imprison_side, imprisoner), set()):
+            return imprisoner
+
+    return None
+
+
+def _status_restriction_block(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    disabled_move: str | None,
+    taunted: bool,
+) -> bool:
+    if disabled_move == move.id:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=f"{actor} cannot use {move.id} because it is disabled.",
+            )
+        )
+        return True
+
+    if (
+        taunted
+        and move.category is MoveCategory.STATUS
+        and move.id != "mefirst"
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=f"{actor} cannot use {move.id} because of Taunt.",
+            )
+        )
+        return True
+
+    imprisoner = _imprison_blocks_move(
+        state,
+        side=side,
+        move_id=move.id,
+    )
+    if imprisoner is not None and move.id != "struggle":
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=(
+                    f"{actor} cannot use {move.id} because "
+                    f"{imprisoner} is using Imprison."
+                ),
+            )
+        )
+        return True
+
+    return False
+
+
 def _selection_restriction_allows_move(
     state: ExactTurnState,
     events: list[SimulationEvent],
