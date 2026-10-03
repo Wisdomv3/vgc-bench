@@ -1163,6 +1163,7 @@ def _selection_restriction_allows_move(
     side: TurnSide,
     actor: str,
     move: Move,
+    torment_blocked_move: str | None = None,
 ) -> bool:
     key = (side, actor)
     profile = state.profile(side, actor)
@@ -1193,6 +1194,22 @@ def _selection_restriction_allows_move(
         return False
 
     if (
+        torment_blocked_move is not None
+        and move_id == torment_blocked_move
+        and move_id != "struggle"
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=f"{actor} cannot repeat {move_id} because of Torment.",
+            )
+        )
+        return False
+
+    if (
         bool(move.entry.get("flags", {}).get("cantusetwice", False))
         and state.last_moves.get(key) == move_id
     ):
@@ -1208,6 +1225,171 @@ def _selection_restriction_allows_move(
         return False
 
     return True
+
+
+def _resolve_pp_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    requested_move_id: str,
+    gen: int,
+) -> tuple[str, Move] | None:
+    if requested_move_id == "struggle":
+        return "struggle", Move("struggle", gen)
+
+    key = (side, actor, requested_move_id)
+    if key not in state.move_pp:
+        return requested_move_id, Move(requested_move_id, gen)
+
+    if state.move_pp[key] > 0:
+        return requested_move_id, Move(requested_move_id, gen)
+
+    tracked = [
+        pp
+        for (pp_side, pp_actor, pp_move), pp in state.move_pp.items()
+        if pp_side is side and pp_actor == actor and pp_move != "struggle"
+    ]
+    if tracked and all(pp <= 0 for pp in tracked):
+        return "struggle", Move("struggle", gen)
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.CANNOT_MOVE,
+            side=side,
+            actor=actor,
+            move=requested_move_id,
+            detail=f"{actor} has no PP left for {requested_move_id}.",
+        )
+    )
+    return None
+
+
+def _pressure_pp_cost(
+    state: ExactTurnState,
+    *,
+    side: TurnSide,
+    actor: str,
+    action: SlotAction,
+    move: Move,
+    redirections: dict[TurnSide, tuple[str, str]],
+) -> int:
+    if move.id == "struggle":
+        return 0
+
+    targets: list[tuple[TurnSide, str]] = []
+    target_name = move.target.name if move.target is not None else ""
+
+    if target_name in {"ALL_ADJACENT", "ALL_ADJACENT_FOES"}:
+        targets = _spread_targets(state, side, actor, move.id)
+    elif target_name in {"NORMAL", "ADJACENT_FOE", "RANDOM_NORMAL", "ANY"}:
+        resolved = _resolve_target(state, side, action)
+        redirected, _original = _redirect_target(
+            state,
+            side,
+            actor,
+            move,
+            resolved,
+            redirections,
+        )
+        if redirected is not None:
+            targets = [redirected]
+
+    extra = sum(
+        1
+        for target_side, target_name in targets
+        if target_side is not side
+        and normalize_move_id(
+            state.profile(target_side, target_name).ability or ""
+        ) == "pressure"
+    )
+    return 1 + extra
+
+
+def _deduct_move_pp(
+    state: ExactTurnState,
+    *,
+    side: TurnSide,
+    actor: str,
+    action: SlotAction,
+    move: Move,
+    redirections: dict[TurnSide, tuple[str, str]],
+) -> None:
+    key = (side, actor, move.id)
+    if move.id == "struggle" or key not in state.move_pp:
+        return
+
+    cost = _pressure_pp_cost(
+        state,
+        side=side,
+        actor=actor,
+        action=action,
+        move=move,
+        redirections=redirections,
+    )
+    state.move_pp[key] = max(0, state.move_pp[key] - cost)
+
+
+def _gender_code(profile: CombatantProfile) -> str:
+    gender = normalize_move_id(profile.gender or "")
+    if gender in {"male", "m"}:
+        return "m"
+    if gender in {"female", "f"}:
+        return "f"
+    return "n"
+
+
+def _attraction_allows_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    config: TurnSimulationConfig,
+) -> bool:
+    key = (side, actor)
+    source_key = state.attractions.get(key)
+    if source_key is None:
+        return True
+
+    source_side, source_name = source_key
+    if (
+        not state.is_active(source_side, source_name)
+        or state.profile(source_side, source_name).current_hp <= 0
+    ):
+        state.attractions.pop(key, None)
+        return True
+
+    if not config.branch_before_move_status:
+        raise UnsupportedTurnMechanic(
+            "attraction requires before-move status branching"
+        )
+
+    immobilized = _boolean_choice(
+        config,
+        (
+            "attraction",
+            side.value,
+            actor,
+            move.id,
+        ),
+        0.5,
+    )
+    if not immobilized:
+        return True
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.CANNOT_MOVE,
+            side=side,
+            actor=actor,
+            move=move.id,
+            detail=f"{actor} is immobilized by love.",
+        )
+    )
+    return False
 
 
 def _record_committed_move(
