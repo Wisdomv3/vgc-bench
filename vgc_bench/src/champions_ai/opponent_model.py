@@ -13,6 +13,7 @@ from replay data.
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from math import isfinite
 
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction, SlotAction
 from vgc_bench.src.champions_ai.spread import is_spread_move, normalize_move_id
@@ -42,6 +43,8 @@ class OpponentActionCandidate:
     source: str | None = None
 
     def __post_init__(self) -> None:
+        if not isfinite(self.prior_weight):
+            raise ValueError("prior_weight must be finite")
         if self.prior_weight < 0:
             raise ValueError("prior_weight cannot be negative")
 
@@ -209,41 +212,81 @@ def estimate_action_probabilities(
         }
 
         baseline_mass_by_behavior: dict[str, float] = defaultdict(float)
+        candidates_per_behavior: Counter[str] = Counter()
         for probability, behavior in zip(baseline, behavior_keys):
             baseline_mass_by_behavior[behavior] += probability
+            candidates_per_behavior[behavior] += 1
 
         empirical_by_action = []
         for probability, behavior in zip(baseline, behavior_keys):
             behavior_probability = empirical_behavior.get(behavior, 0.0)
             behavior_baseline_mass = baseline_mass_by_behavior[behavior]
 
-            if behavior_baseline_mass <= 0:
+            if behavior_probability <= 0:
                 empirical_by_action.append(0.0)
+            elif behavior_baseline_mass <= 0:
+                # Habit evidence can point to a behavior whose current concrete
+                # candidates all have zero baseline weight. Preserve that
+                # empirical behavior mass by splitting it neutrally rather than
+                # dropping probability from the distribution.
+                empirical_by_action.append(
+                    behavior_probability / candidates_per_behavior[behavior]
+                )
             else:
                 empirical_by_action.append(
                     behavior_probability * probability / behavior_baseline_mass
                 )
 
-    output: list[ActionProbability] = []
-    for index, candidate in enumerate(candidates):
+        empirical_total = sum(empirical_by_action)
+        if empirical_total <= 0:
+            empirical_by_action = None
+        elif abs(empirical_total - 1.0) > 1e-12:
+            empirical_by_action = [
+                probability / empirical_total
+                for probability in empirical_by_action
+            ]
+
+    empirical_values = (
+        None
+        if empirical_by_action is None
+        else tuple(empirical_by_action)
+    )
+
+    final_probabilities: list[float] = []
+    for index in range(len(candidates)):
         empirical = (
             None
-            if empirical_by_action is None
-            else empirical_by_action[index]
+            if empirical_values is None
+            else empirical_values[index]
         )
-
         if empirical is None:
-            final_probability = baseline[index]
+            final_probabilities.append(baseline[index])
         else:
-            final_probability = (
+            final_probabilities.append(
                 (1.0 - habit_weight) * baseline[index]
                 + habit_weight * empirical
             )
 
+    final_total = sum(final_probabilities)
+    if final_total <= 0:
+        raise ValueError("opponent action probability distribution has zero mass")
+    if abs(final_total - 1.0) > 1e-12:
+        final_probabilities = [
+            probability / final_total
+            for probability in final_probabilities
+        ]
+
+    output: list[ActionProbability] = []
+    for index, candidate in enumerate(candidates):
+        empirical = (
+            None
+            if empirical_values is None
+            else empirical_values[index]
+        )
         output.append(
             ActionProbability(
                 candidate=candidate,
-                probability=final_probability,
+                probability=final_probabilities[index],
                 baseline_probability=baseline[index],
                 empirical_probability=empirical,
                 comparable_observations=observation_count,
