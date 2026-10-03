@@ -43,6 +43,12 @@ from vgc_bench.src.champions_ai.turn_order import TurnSide, build_turn_order
 # These moves block attacks in the same broad way as Protect for the mechanics
 # currently implemented here. Endure is deliberately excluded because it does
 # not block damage.
+CHOICE_ITEMS = {
+    "choiceband",
+    "choicescarf",
+    "choicespecs",
+}
+
 PROTECT_BLOCK_MOVES = {
     "protect",
     "detect",
@@ -137,6 +143,9 @@ class ExactTurnState:
     sleep_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     confusion_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     must_recharge: set[tuple[TurnSide, str]] = field(default_factory=set)
+    truant_loaf: set[tuple[TurnSide, str]] = field(default_factory=set)
+    choice_locks: dict[tuple[TurnSide, str], str] = field(default_factory=dict)
+    last_moves: dict[tuple[TurnSide, str], str] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -152,6 +161,9 @@ class ExactTurnState:
             sleep_turns=dict(self.sleep_turns),
             confusion_turns=dict(self.confusion_turns),
             must_recharge=set(self.must_recharge),
+            truant_loaf=set(self.truant_loaf),
+            choice_locks=dict(self.choice_locks),
+            last_moves=dict(self.last_moves),
             field_conditions=set(self.field_conditions),
         )
 
