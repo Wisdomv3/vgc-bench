@@ -29,8 +29,10 @@ Before recommending any action, evaluate in this order:
 - [x] Add initial exact matchup resolver for stats, stages, STAB, type effectiveness, weather, burn, and Life Orb.
 - [x] Build initial effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
+- [x] Track first-turn Fake Out eligibility across universal state snapshots and Showdown input.
 - [x] Enumerate legal joint actions.
-- [ ] Add rule-based catastrophic-error guards.
+- [x] Add initial catastrophic-error guards for impossible Fake Out, repeated Protect risk, strictly dominated lines, and guaranteed immediate match loss.
+- [ ] Expand catastrophic guards for priority blocking, redirection, Wide Guard, recoil/contact punishment, and other format-specific failure modes.
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
