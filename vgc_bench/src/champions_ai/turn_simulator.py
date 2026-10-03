@@ -81,6 +81,8 @@ class SimulationEventType(str, Enum):
     FLINCHED = "flinched"
     CANNOT_MOVE = "cannot_move"
     STATUS_CURED = "status_cured"
+    CONFUSION = "confusion"
+    RECHARGE = "recharge"
     BLOCKED = "blocked"
     ITEM = "item"
     RECOIL = "recoil"
@@ -1082,6 +1084,207 @@ def _paralysis_allows_move(
             actor=actor,
             move=move.id,
             detail=f"{actor} is fully paralyzed and cannot move.",
+        )
+    )
+    return False
+
+
+def _stage_stat(stat: int, stage: int) -> int:
+    stage = max(-6, min(6, stage))
+    if stage >= 0:
+        return stat * (2 + stage) // 2
+    return stat * 2 // (2 - stage)
+
+
+def _confusion_damage_rolls(profile: CombatantProfile) -> tuple[int, ...]:
+    attack = _stage_stat(
+        profile.stats["atk"],
+        int(profile.boosts.get("atk", 0)),
+    )
+    defense = _stage_stat(
+        profile.stats["def"],
+        int(profile.boosts.get("def", 0)),
+    )
+    level_factor = 2 * profile.level // 5 + 2
+    base_damage = level_factor * 40 * attack
+    base_damage //= defense
+    base_damage //= 50
+    base_damage += 2
+
+    return tuple(
+        max(1, base_damage * random_factor // 100)
+        for random_factor in range(85, 101)
+    )
+
+
+def _apply_confusion_self_hit(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    config: TurnSimulationConfig,
+) -> int:
+    profile = state.profile(side, actor)
+    damage = _damage_amount(
+        config,
+        _confusion_damage_rolls(profile),
+        side=side,
+        actor=actor,
+        move_id="confused",
+        target_side=side,
+        target_name=actor,
+    )
+
+    if (
+        normalize_move_id(profile.item or "") == "focussash"
+        and profile.current_hp == profile.max_hp
+        and damage >= profile.current_hp
+    ):
+        damage = max(0, profile.current_hp - 1)
+        profile = replace(profile, item=None)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.ITEM,
+                side=side,
+                actor=actor,
+                move="focussash",
+                target=actor,
+                detail=f"{actor} survived confusion damage with Focus Sash.",
+            )
+        )
+
+    actual_damage = min(damage, profile.current_hp)
+    new_hp = max(0, profile.current_hp - actual_damage)
+    state.profiles[(side, actor)] = replace(
+        profile,
+        current_hp=new_hp,
+    )
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.DAMAGE,
+            side=side,
+            actor=actor,
+            move="confused",
+            target=actor,
+            damage=actual_damage,
+            detail=f"{actor} hurt itself in confusion.",
+        )
+    )
+
+    if profile.current_hp > 0 and new_hp == 0:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.FAINT,
+                side=side,
+                actor=actor,
+                detail=f"{actor} fainted.",
+            )
+        )
+
+    return actual_damage
+
+
+def _confusion_allows_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    config: TurnSimulationConfig,
+) -> bool:
+    key = (side, actor)
+    if key not in state.confusion_turns:
+        return True
+
+    profile = state.profile(side, actor)
+    if normalize_move_id(profile.ability or "") == "owntempo":
+        state.confusion_turns.pop(key, None)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CONFUSION,
+                side=side,
+                actor=actor,
+                move=move.id,
+                target=actor,
+                detail=f"{actor}'s Own Tempo ended confusion.",
+            )
+        )
+        return True
+
+    remaining = state.confusion_turns[key]
+    if remaining == 0:
+        if not config.branch_before_move_status:
+            raise UnsupportedTurnMechanic(
+                "confusion duration requires before-move status branching"
+            )
+        remaining = int(
+            _choice(
+                config,
+                (
+                    "confusion_duration",
+                    side.value,
+                    actor,
+                ),
+                (
+                    (2, 0.25),
+                    (3, 0.25),
+                    (4, 0.25),
+                    (5, 0.25),
+                ),
+            )
+        )
+
+    remaining -= 1
+    if remaining <= 0:
+        state.confusion_turns.pop(key, None)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CONFUSION,
+                side=side,
+                actor=actor,
+                move=move.id,
+                target=actor,
+                detail=f"{actor} snapped out of confusion.",
+            )
+        )
+        return True
+
+    state.confusion_turns[key] = remaining
+    if not config.branch_before_move_status:
+        raise UnsupportedTurnMechanic(
+            "confusion self-hit requires before-move status branching"
+        )
+
+    self_hit = _boolean_choice(
+        config,
+        (
+            "confusion_self_hit",
+            side.value,
+            actor,
+            move.id,
+            str(remaining),
+        ),
+        33.0 / 100.0,
+    )
+    if not self_hit:
+        return True
+
+    _apply_confusion_self_hit(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        config=config,
+    )
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.CANNOT_MOVE,
+            side=side,
+            actor=actor,
+            move=move.id,
+            detail=f"{actor} hurt itself in confusion and could not move.",
         )
     )
     return False
