@@ -394,6 +394,48 @@ def _resolve_target(
     return None
 
 
+def _redirect_target(
+    state: ExactTurnState,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    target: tuple[TurnSide, str] | None,
+    redirections: dict[TurnSide, tuple[str, str]],
+) -> tuple[tuple[TurnSide, str] | None, str | None]:
+    if target is None:
+        return None, None
+
+    target_side, target_name = target
+    if target_side is side or not move_can_be_redirected(move):
+        return target, None
+
+    attacker = state.profile(side, actor)
+    if bypasses_redirection(attacker, move):
+        return target, None
+
+    redirect = redirections.get(target_side)
+    if redirect is None:
+        return target, None
+
+    redirect_name, redirect_move = redirect
+    if (
+        not state.is_active(target_side, redirect_name)
+        or state.profile(target_side, redirect_name).current_hp <= 0
+    ):
+        return target, None
+
+    if (
+        redirect_move == "ragepowder"
+        and powder_redirection_immune(attacker)
+    ):
+        return target, None
+
+    if redirect_name == target_name:
+        return target, None
+
+    return (target_side, redirect_name), target_name
+
+
 def _spread_targets(
     state: ExactTurnState,
     side: TurnSide,
