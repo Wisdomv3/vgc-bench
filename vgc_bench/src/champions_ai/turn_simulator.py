@@ -20,6 +20,7 @@ from poke_env.battle import Move, MoveCategory
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction, SlotAction
 from vgc_bench.src.champions_ai.field_mechanics import (
     bypasses_redirection,
+    is_grounded,
     move_can_be_redirected,
     powder_redirection_immune,
     psychic_terrain_blocks_priority,
@@ -79,6 +80,11 @@ class SimulationEventType(str, Enum):
     FLINCH = "flinch"
     FLINCHED = "flinched"
     BLOCKED = "blocked"
+    ITEM = "item"
+    RECOIL = "recoil"
+    CONTACT_DAMAGE = "contact_damage"
+    HEAL = "heal"
+    RESIDUAL = "residual"
     FAINT = "faint"
     SKIPPED = "skipped"
 
@@ -123,6 +129,7 @@ class ExactTurnState:
     trick_room: bool = False
     tailwind_sides: set[TurnSide] = field(default_factory=set)
     protect_streaks: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    toxic_stages: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -134,6 +141,7 @@ class ExactTurnState:
             trick_room=self.trick_room,
             tailwind_sides=set(self.tailwind_sides),
             protect_streaks=dict(self.protect_streaks),
+            toxic_stages=dict(self.toxic_stages),
             field_conditions=set(self.field_conditions),
         )
 
