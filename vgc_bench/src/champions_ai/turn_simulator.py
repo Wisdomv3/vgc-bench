@@ -1549,6 +1549,28 @@ def _apply_damage(
     )
 
     if actual_damage > 0:
+        current_defender = state.profile(target_side, target_name)
+        move_type = (
+            move.type.name.lower()
+            if move.type is not None
+            else ""
+        )
+        if (
+            current_defender.current_hp > 0
+            and normalize_move_id(current_defender.status or "") == "frz"
+            and move_type == "fire"
+            and move.category is not MoveCategory.STATUS
+            and move.id != "polarflare"
+        ):
+            _clear_status(
+                state,
+                speed_states,
+                events,
+                side=target_side,
+                name=target_name,
+                reason=f"hit by {move.id}",
+            )
+
         _apply_contact_punishment(
             state,
             events,
@@ -1583,6 +1605,21 @@ def _apply_damage(
             target_name=target_name,
             config=config,
         )
+
+        current_defender = state.profile(target_side, target_name)
+        if (
+            current_defender.current_hp > 0
+            and normalize_move_id(current_defender.status or "") == "frz"
+            and bool(move.entry.get("thawsTarget", False))
+        ):
+            _clear_status(
+                state,
+                speed_states,
+                events,
+                side=target_side,
+                name=target_name,
+                reason=f"{move.id} thawed the target",
+            )
 
     return actual_damage
 
