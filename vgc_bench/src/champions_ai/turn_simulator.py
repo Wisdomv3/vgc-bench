@@ -1,30 +1,19 @@
-"""Deterministic first-pass turn executor for Champions AI.
+"""Deterministic turn executor used by the probabilistic branch engine.
 
-This module executes one chosen joint action against one opponent joint action.
-It is intentionally a deterministic building block: callers must choose one of
-the 16 damage rolls explicitly. A later branch engine will expand accuracy,
-damage rolls, Speed ties, Protect odds, critical hits, and secondary effects
-into weighted outcomes.
+The executor can run in two modes:
 
-Implemented in this first pass:
-- voluntary switches,
-- Protect-like blocking,
-- Feint/breaks-Protect handling,
-- targeted damage,
-- spread damage,
-- ally damage from all-adjacent spread moves,
-- fainting and cancellation of fainted Pokemon's queued moves,
-- Tailwind,
-- Trick Room,
-- Gen 8+ dynamic Speed reordering after each action,
-- Prankster priority for status moves,
-- Grassy Glide priority while Grassy Terrain is active.
+- fixed mode, where the caller supplies deterministic assumptions;
+- branch-request mode, where unresolved random events raise
+  RandomDecisionRequired with their exact options and probabilities.
 
-Unsupported mechanics raise instead of being silently guessed.
+The separate turn_branching module repeatedly answers those requests and
+re-runs the turn, producing a weighted distribution of outcomes without the
+deterministic core ever making up a random result.
 """
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import TypeAlias
 
 from poke_env.battle import Move, MoveCategory
 
@@ -43,10 +32,12 @@ from vgc_bench.src.champions_ai.spread import (
 from vgc_bench.src.champions_ai.turn_order import TurnSide, build_turn_order
 
 
-PROTECT_LIKE_MOVES = {
+# These moves block attacks in the same broad way as Protect for the mechanics
+# currently implemented here. Endure is deliberately excluded because it does
+# not block damage.
+PROTECT_BLOCK_MOVES = {
     "protect",
     "detect",
-    "endure",
     "spikyshield",
     "kingsshield",
     "banefulbunker",
@@ -56,6 +47,9 @@ PROTECT_LIKE_MOVES = {
     "silktrap",
 }
 
+RandomChoiceValue: TypeAlias = bool | int | str
+RandomChoiceKey: TypeAlias = tuple[str, ...]
+
 
 class SimulationEventType(str, Enum):
     SWITCH = "switch"
@@ -64,22 +58,45 @@ class SimulationEventType(str, Enum):
     PROTECT_BROKEN = "protect_broken"
     FIELD = "field"
     DAMAGE = "damage"
+    MISS = "miss"
+    CRITICAL = "critical"
     BLOCKED = "blocked"
     FAINT = "faint"
     SKIPPED = "skipped"
 
 
 class UnsupportedTurnMechanic(RuntimeError):
-    """Raised when v0 would otherwise have to guess an unsupported mechanic."""
+    """Raised when the simulator would otherwise have to guess a mechanic."""
 
 
 class UnresolvedSpeedTie(RuntimeError):
-    """Raised because the deterministic executor must not invent a tie winner."""
+    """Raised in fixed mode when the executor is not allowed to break a tie."""
+
+
+class RandomDecisionRequired(RuntimeError):
+    """Request one unresolved random decision from the branch engine."""
+
+    def __init__(
+        self,
+        key: RandomChoiceKey,
+        options: tuple[tuple[RandomChoiceValue, float], ...],
+    ) -> None:
+        if not options:
+            raise ValueError("random decision requires at least one option")
+        total = sum(probability for _value, probability in options)
+        if abs(total - 1.0) > 1e-9:
+            raise ValueError("random decision probabilities must sum to 1")
+        if any(probability < 0 for _value, probability in options):
+            raise ValueError("random decision probabilities cannot be negative")
+
+        self.key = key
+        self.options = options
+        super().__init__(f"random decision required: {key[0]} {key[1:]}")
 
 
 @dataclass
 class ExactTurnState:
-    """Exact state used by the deterministic turn executor."""
+    """Exact state used while executing one candidate turn."""
 
     profiles: dict[tuple[TurnSide, str], CombatantProfile]
     active_slots: dict[tuple[TurnSide, int], str]
@@ -87,6 +104,7 @@ class ExactTurnState:
     terrain: str | None = None
     trick_room: bool = False
     tailwind_sides: set[TurnSide] = field(default_factory=set)
+    protect_streaks: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
 
     def copy(self) -> "ExactTurnState":
         return ExactTurnState(
@@ -96,6 +114,7 @@ class ExactTurnState:
             terrain=self.terrain,
             trick_room=self.trick_room,
             tailwind_sides=set(self.tailwind_sides),
+            protect_streaks=dict(self.protect_streaks),
         )
 
     def profile(self, side: TurnSide, name: str) -> CombatantProfile:
@@ -117,13 +136,21 @@ class ExactTurnState:
 
 @dataclass(frozen=True)
 class TurnSimulationConfig:
-    """Explicit assumptions for one deterministic branch."""
+    """Assumptions and branching switches for one deterministic replay."""
 
-    damage_roll_index: int
+    damage_roll_index: int | None = None
     protect_success: dict[tuple[TurnSide, str], bool] = field(default_factory=dict)
+    random_choices: dict[RandomChoiceKey, RandomChoiceValue] = field(
+        default_factory=dict
+    )
+    branch_damage_rolls: bool = False
+    branch_accuracy: bool = False
+    branch_critical_hits: bool = False
+    branch_protect: bool = False
+    branch_speed_ties: bool = False
 
     def __post_init__(self) -> None:
-        if not 0 <= self.damage_roll_index <= 15:
+        if self.damage_roll_index is not None and not 0 <= self.damage_roll_index <= 15:
             raise ValueError("damage_roll_index must be between 0 and 15")
 
 
@@ -161,6 +188,93 @@ def _joint_from_pending(pending: list[SlotAction | None]) -> JointAction:
 
 def _move_key(side: TurnSide, actor: str, move: str) -> tuple[TurnSide, str, str]:
     return (side, actor, normalize_move_id(move))
+
+
+def _choice(
+    config: TurnSimulationConfig,
+    key: RandomChoiceKey,
+    options: tuple[tuple[RandomChoiceValue, float], ...],
+) -> RandomChoiceValue:
+    if key in config.random_choices:
+        selected = config.random_choices[key]
+        valid_values = {value for value, probability in options if probability > 0}
+        if selected not in valid_values:
+            raise ValueError(f"invalid random choice {selected!r} for {key}")
+        return selected
+
+    raise RandomDecisionRequired(key, options)
+
+
+def _boolean_choice(
+    config: TurnSimulationConfig,
+    key: RandomChoiceKey,
+    success_probability: float,
+) -> bool:
+    probability = max(0.0, min(1.0, success_probability))
+    if probability <= 0:
+        return False
+    if probability >= 1:
+        return True
+    return bool(
+        _choice(
+            config,
+            key,
+            (
+                (True, probability),
+                (False, 1.0 - probability),
+            ),
+        )
+    )
+
+
+def _protect_success_probability(streak: int) -> float:
+    """Match Showdown's modern stall counter: 1, 1/3, 1/9 ... capped 1/729."""
+
+    if streak <= 0:
+        return 1.0
+    denominator = min(3 ** streak, 729)
+    return 1.0 / denominator
+
+
+def _critical_probability(
+    attacker: CombatantProfile,
+    defender: CombatantProfile,
+    move: Move,
+) -> float:
+    """Base modern critical-hit probability plus a few directly known modifiers."""
+
+    defender_ability = normalize_move_id(defender.ability or "")
+    if defender_ability in {"battlearmor", "shellarmor"}:
+        return 0.0
+
+    attacker_ability = normalize_move_id(attacker.ability or "")
+    if (
+        attacker_ability == "merciless"
+        and normalize_move_id(defender.status or "") in {"psn", "tox"}
+    ):
+        return 1.0
+
+    raw_ratio = move.crit_ratio
+    if raw_ratio >= 6:
+        return 1.0
+
+    # Showdown's active move defaults to crit stage 1 even though poke-env's
+    # raw move entry reports 0 when no explicit critRatio field exists.
+    stage = raw_ratio if raw_ratio > 0 else 1
+
+    if attacker_ability == "superluck":
+        stage += 1
+    if normalize_move_id(attacker.item or "") in {"scopelens", "razorclaw"}:
+        stage += 1
+
+    stage = max(1, min(stage, 4))
+    denominators = {
+        1: 24,
+        2: 8,
+        3: 2,
+        4: 1,
+    }
+    return 1.0 / denominators[stage]
 
 
 def _derive_priority_overrides(
@@ -250,7 +364,7 @@ def _spread_targets(
 ) -> list[tuple[TurnSide, str]]:
     profile = get_spread_profile(move_id)
 
-    # Expanding Force is only spread in Psychic Terrain.
+    # Expanding Force is spread only while Psychic Terrain is active.
     if (
         normalize_move_id(move_id) == "expandingforce"
         and normalize_move_id(state.terrain or "") != "psychicterrain"
@@ -273,6 +387,52 @@ def _spread_targets(
     return targets
 
 
+def _accuracy_probability(
+    attacker: CombatantProfile,
+    defender: CombatantProfile,
+    move: Move,
+) -> float:
+    """Initial accuracy model using move accuracy and directly known No Guard."""
+
+    if normalize_move_id(attacker.ability or "") == "noguard":
+        return 1.0
+    if normalize_move_id(defender.ability or "") == "noguard":
+        return 1.0
+    return move.accuracy
+
+
+def _damage_roll_index(
+    config: TurnSimulationConfig,
+    *,
+    side: TurnSide,
+    actor: str,
+    move_id: str,
+    target_side: TurnSide,
+    target_name: str,
+) -> int:
+    if config.branch_damage_rolls:
+        key = (
+            "damage_roll",
+            side.value,
+            actor,
+            move_id,
+            target_side.value,
+            target_name,
+        )
+        selected = _choice(
+            config,
+            key,
+            tuple((index, 1.0 / 16.0) for index in range(16)),
+        )
+        return int(selected)
+
+    if config.damage_roll_index is None:
+        raise ValueError(
+            "fixed simulation requires damage_roll_index when damage branching is off"
+        )
+    return config.damage_roll_index
+
+
 def _apply_damage(
     state: ExactTurnState,
     events: list[SimulationEvent],
@@ -283,11 +443,13 @@ def _apply_damage(
     target_side: TurnSide,
     target_name: str,
     protected: set[tuple[TurnSide, str]],
-    damage_roll_index: int,
+    config: TurnSimulationConfig,
+    gen: int,
 ) -> None:
     attacker = state.profile(side, actor)
     defender = state.profile(target_side, target_name)
-    move = Move(normalize_move_id(move_profile.move_id), 9)
+    move_id = normalize_move_id(move_profile.move_id)
+    move = Move(move_id, gen)
 
     protected_key = (target_side, target_name)
     if protected_key in protected:
@@ -316,13 +478,81 @@ def _apply_damage(
             )
             return
 
+    if config.branch_accuracy:
+        hit_key = (
+            "accuracy",
+            side.value,
+            actor,
+            move_id,
+            target_side.value,
+            target_name,
+        )
+        hit = _boolean_choice(
+            config,
+            hit_key,
+            _accuracy_probability(attacker, defender, move),
+        )
+    else:
+        hit = True
+
+    if not hit:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.MISS,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail=f"{move_id} missed {target_name}.",
+            )
+        )
+        return
+
+    if config.branch_critical_hits:
+        crit_key = (
+            "critical",
+            side.value,
+            actor,
+            move_id,
+            target_side.value,
+            target_name,
+        )
+        critical = _boolean_choice(
+            config,
+            crit_key,
+            _critical_probability(attacker, defender, move),
+        )
+    else:
+        critical = False
+
+    if critical:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CRITICAL,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail=f"{move_id} critically hit {target_name}.",
+            )
+        )
+
     damage_result = calculate_matchup_damage(
         attacker,
         defender,
         move_profile,
         weather=state.weather,
+        critical=critical,
     )
-    damage = damage_result.rolls[damage_roll_index]
+    roll_index = _damage_roll_index(
+        config,
+        side=side,
+        actor=actor,
+        move_id=move_id,
+        target_side=target_side,
+        target_name=target_name,
+    )
+    damage = damage_result.rolls[roll_index]
     new_hp = max(0, defender.current_hp - damage)
 
     state.profiles[(target_side, target_name)] = replace(
@@ -334,7 +564,7 @@ def _apply_damage(
             type=SimulationEventType.DAMAGE,
             side=side,
             actor=actor,
-            move=move_profile.move_id,
+            move=move_id,
             target=target_name,
             damage=damage,
             detail=f"{target_name}: {defender.current_hp} -> {new_hp} HP",
@@ -381,6 +611,8 @@ def _execute_switch(
         raise UnsupportedTurnMechanic("cannot switch to an already active Pokemon")
 
     state.active_slots[(side, action.slot)] = target
+    state.protect_streaks[(side, actor)] = 0
+    state.protect_streaks[(side, target)] = 0
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
@@ -423,15 +655,37 @@ def _execute_move(
     move_id = normalize_move_id(action.move)
     move = Move(move_id, gen)
 
-    if move_id in PROTECT_LIKE_MOVES:
-        success = config.protect_success.get((side, actor), True)
+    if move_id in PROTECT_BLOCK_MOVES:
+        streak_key = (side, actor)
+        previous_streak = state.protect_streaks.get(streak_key, 0)
+
+        if streak_key in config.protect_success:
+            success = config.protect_success[streak_key]
+        elif config.branch_protect:
+            random_key = (
+                "protect",
+                side.value,
+                actor,
+                move_id,
+                str(previous_streak),
+            )
+            success = _boolean_choice(
+                config,
+                random_key,
+                _protect_success_probability(previous_streak),
+            )
+        else:
+            success = True
+
         if success:
-            protected.add((side, actor))
+            protected.add(streak_key)
+            state.protect_streaks[streak_key] = min(previous_streak + 1, 6)
             event_type = SimulationEventType.PROTECT
             detail = "Protect-like protection is active."
         else:
+            state.protect_streaks[streak_key] = 0
             event_type = SimulationEventType.PROTECT_FAILED
-            detail = "Protect-like move failed in this deterministic branch."
+            detail = "Protect-like move failed in this branch."
 
         events.append(
             SimulationEvent(
@@ -443,6 +697,9 @@ def _execute_move(
             )
         )
         return
+
+    # Using a non-stalling move resets the Protect/Detect stall chain.
+    state.protect_streaks[(side, actor)] = 0
 
     if move_id == "tailwind":
         state.tailwind_sides.add(side)
@@ -503,7 +760,7 @@ def _execute_move(
         )
         return
 
-    # Showdown's 0.75 spread modifier applies only when multiple targets exist.
+    # The 0.75 doubles spread modifier applies only while multiple targets exist.
     effective_move_profile = replace(
         move_profile,
         spread=move_profile.spread and len(targets) > 1,
@@ -521,8 +778,48 @@ def _execute_move(
             target_side=target_side,
             target_name=target_name,
             protected=protected,
-            damage_roll_index=config.damage_roll_index,
+            config=config,
+            gen=gen,
         )
+
+
+def _choose_speed_tie(
+    config: TurnSimulationConfig,
+    tied_actions,
+):
+    actors = tuple(
+        sorted(
+            (
+                f"{scheduled.side.value}:{scheduled.slot}:{scheduled.actor}",
+                scheduled,
+            )
+            for scheduled in tied_actions
+        )
+    )
+
+    if not config.branch_speed_ties:
+        names = ", ".join(scheduled.actor for _token, scheduled in actors)
+        raise UnresolvedSpeedTie(
+            f"deterministic simulator cannot choose Speed tie between {names}"
+        )
+
+    key: RandomChoiceKey = (
+        "speed_tie",
+        *(token for token, _scheduled in actors),
+    )
+    probability = 1.0 / len(actors)
+    selected_token = str(
+        _choice(
+            config,
+            key,
+            tuple((token, probability) for token, _scheduled in actors),
+        )
+    )
+    return next(
+        scheduled
+        for token, scheduled in actors
+        if token == selected_token
+    )
 
 
 def simulate_turn(
@@ -535,12 +832,7 @@ def simulate_turn(
     *,
     gen: int = 9,
 ) -> TurnSimulationResult:
-    """Execute one deterministic branch of a doubles turn.
-
-    Gen 8+ action Speed is refreshed after each action, matching Showdown's
-    dynamic Speed reordering behavior. Exact Speed ties are deliberately rejected
-    here so the future probability brancher can split them rather than guess.
-    """
+    """Execute one fixed branch of a doubles turn."""
 
     state = initial_state.copy()
     speed_states = dict(speed_states)
@@ -581,12 +873,10 @@ def simulate_turn(
 
         next_group = groups[0]
         if next_group.is_speed_tie:
-            actors = ", ".join(action.actor for action in next_group.actions)
-            raise UnresolvedSpeedTie(
-                f"deterministic simulator cannot choose Speed tie between {actors}"
-            )
+            scheduled = _choose_speed_tie(config, next_group.actions)
+        else:
+            scheduled = next_group.actions[0]
 
-        scheduled = next_group.actions[0]
         pending = (
             our_pending
             if scheduled.side is TurnSide.PLAYER
@@ -623,7 +913,7 @@ def simulate_turn(
             )
 
         # Showdown dynamically refreshes remaining action Speed in Gen 8+.
-        # Rebuilding the order on the next loop iteration provides that behavior.
+        # Rebuilding the queue on each loop iteration reproduces that behavior.
 
     return TurnSimulationResult(
         state=state,
