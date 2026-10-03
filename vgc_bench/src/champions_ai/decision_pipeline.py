@@ -13,6 +13,7 @@ mechanics_evaluator, not a calibrated match win probability.
 """
 
 from dataclasses import dataclass
+from typing import Callable
 
 from poke_env.battle import DoubleBattle
 
@@ -32,6 +33,10 @@ from vgc_bench.src.champions_ai.inputs.showdown import (
 )
 from vgc_bench.src.champions_ai.inputs.showdown_actions import (
     legal_joint_actions_from_showdown,
+)
+from vgc_bench.src.champions_ai.hidden_scenarios import (
+    HiddenStateScenario,
+    hidden_state_scenarios,
 )
 from vgc_bench.src.champions_ai.hidden_sets import SetHypothesis
 from vgc_bench.src.champions_ai.matchup import CombatantProfile, MoveProfile
@@ -181,6 +186,10 @@ def rank_decision(
     habit_weight: float = 0.0,
     branching_policy: BranchingPolicy | None = None,
     position_weights: PositionWeights | None = None,
+    scenario_provider: Callable[
+        [JointAction],
+        tuple[HiddenStateScenario, ...],
+    ] | None = None,
     gen: int = 9,
 ) -> DecisionReport:
     """Run the complete current Champions AI ranking pipeline."""
@@ -243,6 +252,7 @@ def rank_decision(
         move_profiles,
         branching_policy=branching_policy,
         position_weights=position_weights,
+        scenario_provider=scenario_provider,
         gen=gen,
     )
 
@@ -333,6 +343,7 @@ def rank_showdown_decision(
     include_opponent_switches: bool = True,
     opponent_switch_prior_weight: float = 1.0,
     max_opponent_candidates: int | None = None,
+    max_hidden_scenarios: int | None = 64,
     speed_states: dict[tuple[TurnSide, str], SpeedState] | None = None,
     unburden_active: frozenset[tuple[TurnSide, str]] = frozenset(),
     paradox_speed_active: frozenset[tuple[TurnSide, str]] = frozenset(),
@@ -379,6 +390,17 @@ def rank_showdown_decision(
             paradox_speed_active=paradox_speed_active,
         )
 
+    scenario_provider = None
+    if hidden_hypotheses:
+        scenario_provider = lambda opponent_action: hidden_state_scenarios(
+            snapshot,
+            exact_state,
+            opponent_action,
+            hidden_hypotheses,
+            speed_states,
+            max_scenarios=max_hidden_scenarios,
+        )
+
     return rank_decision(
         snapshot,
         exact_state,
@@ -391,5 +413,6 @@ def rank_showdown_decision(
         habit_weight=habit_weight,
         branching_policy=branching_policy,
         position_weights=position_weights,
+        scenario_provider=scenario_provider,
         gen=gen,
     )
