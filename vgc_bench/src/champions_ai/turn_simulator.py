@@ -2143,6 +2143,218 @@ def _apply_damage(
     return actual_damage
 
 
+def _execute_restriction_status_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    protected: set[tuple[TurnSide, str]],
+    redirections: dict[TurnSide, tuple[str, str]],
+    move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
+    *,
+    side: TurnSide,
+    actor: str,
+    action: SlotAction,
+    move: Move,
+    gen: int,
+) -> bool:
+    move_id = move.id
+    if move_id not in {"disable", "taunt", "encore", "imprison"}:
+        return False
+
+    if move_id == "imprison":
+        key = (side, actor)
+        known = state.known_moves.setdefault(key, set())
+        known.add("imprison")
+        for profile_side, profile_actor, profile_move in move_profiles:
+            if profile_side is side and profile_actor == actor:
+                known.add(profile_move)
+
+        state.imprison_users.add(key)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.RESTRICTION,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=actor,
+                detail=f"{actor} began using Imprison.",
+            )
+        )
+        return True
+
+    resolved = _resolve_target(state, side, action)
+    redirected, original_target = _redirect_target(
+        state,
+        side,
+        actor,
+        move,
+        resolved,
+        redirections,
+    )
+    if original_target is not None and redirected is not None:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.REDIRECT,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=redirected[1],
+                detail=(
+                    f"{move_id} was redirected from "
+                    f"{original_target} to {redirected[1]}."
+                ),
+            )
+        )
+
+    if redirected is None:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.SKIPPED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail="No valid target remained.",
+            )
+        )
+        return True
+
+    target_side, target_name = redirected
+    target = state.profile(target_side, target_name)
+    if target.current_hp <= 0:
+        return True
+
+    priority = _effective_move_priority(
+        state,
+        side,
+        actor,
+        move,
+    )
+    if psychic_terrain_blocks_priority(
+        target,
+        priority=priority,
+        source_is_ally=side is target_side,
+        terrain=state.terrain,
+        field_conditions=state.field_conditions,
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.PRIORITY_BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail="Blocked by Psychic Terrain.",
+            )
+        )
+        return True
+
+    attacker = state.profile(side, actor)
+    if (
+        gen >= 7
+        and side is not target_side
+        and normalize_move_id(attacker.ability or "") == "prankster"
+        and "dark" in {
+            normalize_move_id(type_name)
+            for type_name in target.types
+        }
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail="Dark-type target is immune to opposing Prankster status moves.",
+            )
+        )
+        return True
+
+    if (
+        (target_side, target_name) in protected
+        and bool(move.entry.get("flags", {}).get("protect", False))
+        and not move.breaks_protect
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail=f"{target_name} protected itself.",
+            )
+        )
+        return True
+
+    target_key = (target_side, target_name)
+
+    if move_id == "disable":
+        last_move = state.last_moves.get(target_key)
+        if last_move is None or last_move == "struggle":
+            events.append(
+                SimulationEvent(
+                    type=SimulationEventType.SKIPPED,
+                    side=side,
+                    actor=actor,
+                    move=move_id,
+                    target=target_name,
+                    detail="Disable failed because the target has no eligible last move.",
+                )
+            )
+            return True
+
+        state.disabled_moves[target_key] = (last_move, 4)
+        detail = f"{target_name}'s {last_move} was disabled."
+
+    elif move_id == "taunt":
+        state.taunt_turns[target_key] = 3
+        detail = f"{target_name} was taunted."
+
+    else:
+        last_move = state.last_moves.get(target_key)
+        if last_move is None or last_move == "struggle":
+            events.append(
+                SimulationEvent(
+                    type=SimulationEventType.SKIPPED,
+                    side=side,
+                    actor=actor,
+                    move=move_id,
+                    target=target_name,
+                    detail="Encore failed because the target has no eligible last move.",
+                )
+            )
+            return True
+
+        last_move_data = Move(last_move, gen)
+        if bool(last_move_data.entry.get("flags", {}).get("failencore", False)):
+            events.append(
+                SimulationEvent(
+                    type=SimulationEventType.SKIPPED,
+                    side=side,
+                    actor=actor,
+                    move=move_id,
+                    target=target_name,
+                    detail=f"Encore cannot lock {target_name} into {last_move}.",
+                )
+            )
+            return True
+
+        state.encore_locks[target_key] = (last_move, 3)
+        detail = f"{target_name} was encored into {last_move}."
+
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.RESTRICTION,
+            side=side,
+            actor=actor,
+            move=move_id,
+            target=target_name,
+            detail=detail,
+        )
+    )
+    return True
+
+
 def _execute_switch(
     state: ExactTurnState,
     events: list[SimulationEvent],
