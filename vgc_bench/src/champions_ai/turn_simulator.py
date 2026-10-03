@@ -1016,6 +1016,7 @@ def _execute_move(
     speed_states: dict[tuple[TurnSide, str], SpeedState],
     events: list[SimulationEvent],
     protected: set[tuple[TurnSide, str]],
+    flinched: set[tuple[TurnSide, str]],
     move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
     config: TurnSimulationConfig,
     side: TurnSide,
@@ -1035,6 +1036,21 @@ def _execute_move(
                 actor=actor,
                 move=action.move,
                 detail="Pokemon is fainted or no longer active.",
+            )
+        )
+        return
+
+    flinch_key = (side, actor)
+    if flinch_key in flinched:
+        flinched.discard(flinch_key)
+        state.protect_streaks[flinch_key] = 0
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.FLINCHED,
+                side=side,
+                actor=actor,
+                move=action.move,
+                detail=f"{actor} flinched and could not move.",
             )
         )
         return
@@ -1153,20 +1169,39 @@ def _execute_move(
         spread=move_profile.spread and len(targets) > 1,
     )
 
+    landed_hit = False
     for target_side, target_name in targets:
         if state.profile(target_side, target_name).current_hp <= 0:
             continue
-        _apply_damage(
+        landed_hit = (
+            _apply_damage(
+                state,
+                speed_states,
+                events,
+                flinched,
+                side=side,
+                actor=actor,
+                move_profile=effective_move_profile,
+                target_side=target_side,
+                target_name=target_name,
+                protected=protected,
+                config=config,
+                gen=gen,
+            )
+            or landed_hit
+        )
+
+    if landed_hit and move.self_boost:
+        _apply_boosts(
             state,
+            speed_states,
             events,
-            side=side,
-            actor=actor,
-            move_profile=effective_move_profile,
-            target_side=target_side,
-            target_name=target_name,
-            protected=protected,
-            config=config,
-            gen=gen,
+            source_side=side,
+            source_name=actor,
+            target_side=side,
+            target_name=actor,
+            move_id=move_id,
+            boosts=move.self_boost,
         )
 
 
@@ -1237,6 +1272,7 @@ def simulate_turn(
     ]
 
     protected: set[tuple[TurnSide, str]] = set()
+    flinched: set[tuple[TurnSide, str]] = set()
     events: list[SimulationEvent] = []
 
     while any(action is not None for action in our_pending + opponent_pending):
@@ -1283,6 +1319,7 @@ def simulate_turn(
                 speed_states,
                 events,
                 protected,
+                flinched,
                 move_profiles,
                 config,
                 scheduled.side,
