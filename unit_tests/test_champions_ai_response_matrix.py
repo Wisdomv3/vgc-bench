@@ -3,6 +3,7 @@ import pytest
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction, SlotAction
 from vgc_bench.src.champions_ai.opponent_model import (
     OpponentActionCandidate,
+    OpponentHabitTracker,
     estimate_action_probabilities,
 )
 from vgc_bench.src.champions_ai.response_matrix import build_response_matrix
@@ -177,3 +178,39 @@ def test_missing_opponent_distribution_is_rejected() -> None:
             (),
             lambda _ours, _theirs: 0.0,
         )
+
+
+def test_zero_baseline_habit_distribution_is_valid_for_response_matrix() -> None:
+    protect_pressure, _, opponent_spread, opponent_protect = _actions()
+
+    tracker = OpponentHabitTracker()
+    tracker.record(
+        "threatened",
+        "protect+targeted_move",
+    )
+
+    estimates = estimate_action_probabilities(
+        (
+            OpponentActionCandidate(opponent_spread, prior_weight=1),
+            OpponentActionCandidate(opponent_protect, prior_weight=0),
+        ),
+        tracker=tracker,
+        context_key="threatened",
+        habit_weight=0.5,
+    )
+
+    summary = build_response_matrix(
+        (protect_pressure,),
+        estimates,
+        lambda _ours, theirs: (
+            1.0
+            if theirs == opponent_protect
+            else 0.0
+        ),
+    )[0]
+
+    assert sum(
+        cell.opponent_probability
+        for cell in summary.cells
+    ) == pytest.approx(1.0)
+    assert summary.expected_value == pytest.approx(0.5)
