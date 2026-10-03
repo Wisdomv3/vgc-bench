@@ -40,7 +40,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add Truant loaf turns, Choice-item/Gorilla Tactics move locks, and cant-use-twice restrictions such as Gigaton Hammer/Blood Moon.
 - [x] Add Disable, Taunt, Encore action override, and Imprison shared-move restrictions with volatile duration tracking.
 - [x] Add Torment repeat-move restriction, Attract gender/Oblivious handling, exact 50% immobilization branching, PP tracking with Pressure, and Struggle fallback/recoil.
-- [ ] Add remaining selection edge cases, deeper PP/request synchronization, and other format-relevant move restrictions.
+- [x] Synchronize live Showdown observations into simulator templates, including HP scaling, boosts, types, gender, PP, last move, recharge, protection streaks, field state, and supported restriction volatiles.
+- [ ] Add remaining selection edge cases, exact volatile-source/history synchronization, and other format-relevant move restrictions.
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
