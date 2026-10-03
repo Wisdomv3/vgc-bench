@@ -2675,6 +2675,17 @@ def _execute_switch(
     state.encore_locks.pop((side, target), None)
     state.imprison_users.discard((side, actor))
     state.imprison_users.discard((side, target))
+    state.tormented.discard((side, actor))
+    state.tormented.discard((side, target))
+
+    actor_key = (side, actor)
+    target_key = (side, target)
+    state.attractions.pop(actor_key, None)
+    state.attractions.pop(target_key, None)
+    for attracted_key, source_key in tuple(state.attractions.items()):
+        if source_key in {actor_key, target_key}:
+            state.attractions.pop(attracted_key, None)
+
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
