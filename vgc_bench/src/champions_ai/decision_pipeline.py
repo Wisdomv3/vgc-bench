@@ -52,21 +52,10 @@ from vgc_bench.src.champions_ai.position_value import PositionWeights
 from vgc_bench.src.champions_ai.response_matrix import ActionResponseSummary
 from vgc_bench.src.champions_ai.snapshot import DecisionSnapshot
 from vgc_bench.src.champions_ai.speed import SpeedState
-from vgc_bench.src.champions_ai.spread import normalize_move_id
+from vgc_bench.src.champions_ai.speed_context import speed_states_from_exact_state
 from vgc_bench.src.champions_ai.turn_branching import BranchingPolicy
 from vgc_bench.src.champions_ai.turn_order import TurnSide
 from vgc_bench.src.champions_ai.turn_simulator import ExactTurnState
-
-
-WEATHER_SPEED_ABILITIES = {
-    "raindance": {"swiftswim"},
-    "sunnyday": {"chlorophyll"},
-    "desolateland": {"chlorophyll"},
-    "primordialsea": {"swiftswim"},
-    "sandstorm": {"sandrush"},
-    "hail": {"slushrush"},
-    "snow": {"slushrush"},
-}
 
 
 @dataclass(frozen=True)
