@@ -41,7 +41,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
 - [x] Add initial turn action ordering for switches, priority, Speed, Tailwind, Trick Room, and explicit Speed ties.
 - [x] Add deterministic turn simulator core for switches, Protect, targeted/spread damage, faint cancellation, Tailwind, Trick Room, Prankster, and Grassy Glide.
-- [ ] Add probabilistic turn branching for damage rolls, accuracy, Speed ties, Protect odds, critical hits, flinches, and secondary effects.
+- [x] Add probabilistic turn branching for damage rolls, accuracy, Speed ties, repeated Protect odds, and critical hits.
+- [ ] Add probabilistic flinches and secondary effects.
 - [ ] Add a mechanics-based turn outcome evaluator for response-matrix cells.
 - [ ] Learn/calibrate opponent-action priors and habit blending from replay data.
 
