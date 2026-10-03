@@ -668,7 +668,6 @@ def _apply_contact_punishment(
 
     if (
         attacker.current_hp <= 0
-        or defender.current_hp <= 0
         or not _move_makes_contact(attacker, move)
     ):
         return
