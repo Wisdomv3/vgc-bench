@@ -105,42 +105,6 @@ def _dedupe_actions(actions: tuple[JointAction, ...]) -> tuple[JointAction, ...]
     return tuple(output)
 
 
-def speed_states_from_exact_state(
-    state: ExactTurnState,
-    *,
-    unburden_active: frozenset[tuple[TurnSide, str]] = frozenset(),
-    paradox_speed_active: frozenset[tuple[TurnSide, str]] = frozenset(),
-) -> dict[tuple[TurnSide, str], SpeedState]:
-    """Build supported live SpeedState inputs from an ExactTurnState.
-
-    Unburden and Paradox Speed activation require explicit caller confirmation
-    because their activation history is not yet fully represented in
-    ExactTurnState.
-    """
-
-    weather = normalize_move_id(state.weather or "")
-    weather_abilities = WEATHER_SPEED_ABILITIES.get(weather, set())
-
-    output: dict[tuple[TurnSide, str], SpeedState] = {}
-    for key, profile in state.profiles.items():
-        side, _name = key
-        ability = normalize_move_id(profile.ability or "")
-        item = normalize_move_id(profile.item or "")
-
-        output[key] = SpeedState(
-            speed_stat=int(profile.stats["spe"]),
-            stage=int(profile.boosts.get("spe", 0)),
-            tailwind=side in state.tailwind_sides,
-            unburden=key in unburden_active,
-            choice_scarf=item == "choicescarf",
-            weather_speed_boost=ability in weather_abilities,
-            paradox_speed_boost=key in paradox_speed_active,
-            paralyzed=normalize_move_id(profile.status or "") == "par",
-        )
-
-    return output
-
-
 def _guaranteed_loss_findings(
     analysis: MechanicsResponseAnalysis,
     opponent_estimates: tuple[ActionProbability, ...],
