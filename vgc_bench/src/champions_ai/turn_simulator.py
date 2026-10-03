@@ -89,6 +89,7 @@ class SimulationEventType(str, Enum):
     STATUS_CURED = "status_cured"
     CONFUSION = "confusion"
     RECHARGE = "recharge"
+    RESTRICTION = "restriction"
     BLOCKED = "blocked"
     ITEM = "item"
     RECOIL = "recoil"
@@ -1165,6 +1166,7 @@ def _record_committed_move(
 ) -> None:
     key = (side, actor)
     state.last_moves[key] = move.id
+    state.known_moves.setdefault(key, set()).add(move.id)
 
     profile = state.profile(side, actor)
     item = normalize_move_id(profile.item or "")
@@ -2184,6 +2186,14 @@ def _execute_switch(
     state.choice_locks.pop((side, target), None)
     state.last_moves.pop((side, actor), None)
     state.last_moves.pop((side, target), None)
+    state.disabled_moves.pop((side, actor), None)
+    state.disabled_moves.pop((side, target), None)
+    state.taunt_turns.pop((side, actor), None)
+    state.taunt_turns.pop((side, target), None)
+    state.encore_locks.pop((side, actor), None)
+    state.encore_locks.pop((side, target), None)
+    state.imprison_users.discard((side, actor))
+    state.imprison_users.discard((side, target))
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
