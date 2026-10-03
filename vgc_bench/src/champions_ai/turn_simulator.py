@@ -299,6 +299,28 @@ def _critical_probability(
     return 1.0 / denominators[stage]
 
 
+def _effective_move_priority(
+    state: ExactTurnState,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+) -> int:
+    priority = move.priority
+    profile = state.profile(side, actor)
+    ability = normalize_move_id(profile.ability or "")
+
+    if ability == "prankster" and move.category is MoveCategory.STATUS:
+        priority += 1
+
+    if (
+        move.id == "grassyglide"
+        and normalize_move_id(state.terrain or "") == "grassyterrain"
+    ):
+        priority += 1
+
+    return priority
+
+
 def _derive_priority_overrides(
     state: ExactTurnState,
     our_pending: list[SlotAction | None],
@@ -323,18 +345,12 @@ def _derive_priority_overrides(
 
             move_id = normalize_move_id(action.move)
             move = Move(move_id, gen)
-            priority = move.priority
-            profile = state.profile(side, action.actor)
-            ability = normalize_move_id(profile.ability or "")
-
-            if ability == "prankster" and move.category is MoveCategory.STATUS:
-                priority += 1
-
-            if (
-                move_id == "grassyglide"
-                and normalize_move_id(state.terrain or "") == "grassyterrain"
-            ):
-                priority += 1
+            priority = _effective_move_priority(
+                state,
+                side,
+                action.actor,
+                move,
+            )
 
             if priority != move.priority:
                 overrides[(side, action.actor, move_id)] = priority
