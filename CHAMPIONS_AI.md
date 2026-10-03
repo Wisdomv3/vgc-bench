@@ -44,7 +44,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add probabilistic turn branching for damage rolls, accuracy, Speed ties, repeated Protect odds, and critical hits.
 - [x] Add probabilistic flinches and common damaging-move secondary effects, including status, stat drops, Dire Claw, Inner Focus, Covert Cloak, and Defiant/Competitive reactions.
 - [ ] Expand secondary-effect immunities and ability/item interactions to full format coverage.
-- [ ] Add a mechanics-based turn outcome evaluator for response-matrix cells.
+- [x] Add a mechanics-based turn outcome evaluator that converts weighted simulated outcomes into transparent position-score changes and plugs them into the response matrix.
+- [ ] Replace the temporary position heuristic with a calibrated match-value / win-probability model.
 - [ ] Learn/calibrate opponent-action priors and habit blending from replay data.
 
 ## Important design principle
