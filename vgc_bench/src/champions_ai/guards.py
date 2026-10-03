@@ -26,6 +26,7 @@ PROTECT_LIKE_MOVES = {
     "obstruct",
     "maxguard",
     "silktrap",
+    "wideguard",
 }
 
 
