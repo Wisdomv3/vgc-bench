@@ -19,6 +19,7 @@ def _pokemon(
     moves: tuple[str, ...] = (),
     boosts: dict[str, int] | None = None,
     protect_counter: int = 0,
+    first_turn: bool = False,
 ):
     return SimpleNamespace(
         species=species,
@@ -41,6 +42,7 @@ def _pokemon(
             "evasion": 0,
         },
         protect_counter=protect_counter,
+        first_turn=first_turn,
     )
 
 
@@ -52,6 +54,7 @@ def test_showdown_adapter_builds_current_board_state() -> None:
         ability="roughskin",
         moves=("protect", "dragonclaw"),
         boosts={"atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 1, "accuracy": 0, "evasion": 0},
+        first_turn=True,
     )
     whimsicott = _pokemon("whimsicott", hp_fraction=0.90)
     salamence = _pokemon(
@@ -95,7 +98,9 @@ def test_showdown_adapter_builds_current_board_state() -> None:
     assert state.opponent.pokemon["salamence"].ability == "intimidate"
     assert "hypervoice" in state.opponent.pokemon["salamence"].revealed_moves
     assert state.player.pokemon["garchomp"].stat_stages["spe"] == 1
+    assert state.player.pokemon["garchomp"].first_turn is True
     assert state.opponent.pokemon["salamence"].protect_streak == 2
+    assert state.opponent.pokemon["salamence"].first_turn is False
 
     assert state.player.tailwind_turns == 3
     assert "reflect" in state.player.side_conditions
