@@ -1402,6 +1402,8 @@ def _execute_switch(
     state.active_slots[(side, action.slot)] = target
     state.protect_streaks[(side, actor)] = 0
     state.protect_streaks[(side, target)] = 0
+    state.toxic_stages[(side, actor)] = 0
+    state.toxic_stages[(side, target)] = 0
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
@@ -1682,6 +1684,181 @@ def _execute_move(
     )
 
 
+def _sandstorm_immune(profile: CombatantProfile) -> bool:
+    types = {
+        normalize_move_id(type_name)
+        for type_name in profile.types
+    }
+    if types.intersection({"rock", "ground", "steel"}):
+        return True
+
+    ability = normalize_move_id(profile.ability or "")
+    if ability in {"sandforce", "sandrush", "sandveil", "overcoat"}:
+        return True
+
+    return normalize_move_id(profile.item or "") == "safetygoggles"
+
+
+def _hail_immune(profile: CombatantProfile) -> bool:
+    types = {
+        normalize_move_id(type_name)
+        for type_name in profile.types
+    }
+    if "ice" in types:
+        return True
+
+    ability = normalize_move_id(profile.ability or "")
+    if ability == "overcoat":
+        return True
+
+    return normalize_move_id(profile.item or "") == "safetygoggles"
+
+
+def _apply_end_of_turn_residuals(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+) -> None:
+    """Apply the supported Gen 9 end-of-turn residual sequence."""
+
+    active = tuple(
+        sorted(
+            state.active_slots.items(),
+            key=lambda item: (item[0][0].value, item[0][1]),
+        )
+    )
+
+    weather = normalize_move_id(state.weather or "")
+    if weather in {"sandstorm", "hail"}:
+        for (side, _slot), name in active:
+            profile = state.profile(side, name)
+            if profile.current_hp <= 0:
+                continue
+
+            immune = (
+                _sandstorm_immune(profile)
+                if weather == "sandstorm"
+                else _hail_immune(profile)
+            )
+            if immune:
+                continue
+
+            _apply_indirect_damage(
+                state,
+                events,
+                side=side,
+                name=name,
+                amount=_max_hp_fraction(profile.max_hp, 1, 16),
+                event_type=SimulationEventType.RESIDUAL,
+                detail=f"{name} took {weather} damage.",
+            )
+
+    if normalize_move_id(state.terrain or "") == "grassyterrain":
+        for (side, _slot), name in active:
+            profile = state.profile(side, name)
+            if (
+                profile.current_hp <= 0
+                or not is_grounded(
+                    profile,
+                    field_conditions=state.field_conditions,
+                )
+            ):
+                continue
+
+            _heal_profile(
+                state,
+                events,
+                side=side,
+                name=name,
+                amount=_max_hp_fraction(profile.max_hp, 1, 16),
+                detail=f"{name} recovered HP from Grassy Terrain.",
+            )
+
+    for (side, _slot), name in active:
+        profile = state.profile(side, name)
+        if (
+            profile.current_hp > 0
+            and normalize_move_id(profile.item or "") == "leftovers"
+        ):
+            _heal_profile(
+                state,
+                events,
+                side=side,
+                name=name,
+                amount=_max_hp_fraction(profile.max_hp, 1, 16),
+                detail=f"{name} recovered HP from Leftovers.",
+            )
+
+    for (side, _slot), name in active:
+        profile = state.profile(side, name)
+        if profile.current_hp <= 0:
+            continue
+
+        status = normalize_move_id(profile.status or "")
+        ability = normalize_move_id(profile.ability or "")
+
+        if status == "tox":
+            toxic_key = (side, name)
+            stage = min(state.toxic_stages.get(toxic_key, 0) + 1, 15)
+            state.toxic_stages[toxic_key] = stage
+
+            if ability == "poisonheal":
+                _heal_profile(
+                    state,
+                    events,
+                    side=side,
+                    name=name,
+                    amount=_max_hp_fraction(profile.max_hp, 1, 8),
+                    detail=f"{name} recovered HP from Poison Heal.",
+                )
+            else:
+                _apply_indirect_damage(
+                    state,
+                    events,
+                    side=side,
+                    name=name,
+                    amount=_max_hp_fraction(profile.max_hp, 1, 16) * stage,
+                    event_type=SimulationEventType.RESIDUAL,
+                    detail=f"{name} took toxic poison damage.",
+                )
+
+        elif status == "psn":
+            if ability == "poisonheal":
+                _heal_profile(
+                    state,
+                    events,
+                    side=side,
+                    name=name,
+                    amount=_max_hp_fraction(profile.max_hp, 1, 8),
+                    detail=f"{name} recovered HP from Poison Heal.",
+                )
+            else:
+                _apply_indirect_damage(
+                    state,
+                    events,
+                    side=side,
+                    name=name,
+                    amount=_max_hp_fraction(profile.max_hp, 1, 8),
+                    event_type=SimulationEventType.RESIDUAL,
+                    detail=f"{name} took poison damage.",
+                )
+
+    for (side, _slot), name in active:
+        profile = state.profile(side, name)
+        if (
+            profile.current_hp > 0
+            and normalize_move_id(profile.status or "") == "brn"
+        ):
+            _apply_indirect_damage(
+                state,
+                events,
+                side=side,
+                name=name,
+                amount=_max_hp_fraction(profile.max_hp, 1, 16),
+                event_type=SimulationEventType.RESIDUAL,
+                detail=f"{name} took burn damage.",
+            )
+
+
 def _choose_speed_tie(
     config: TurnSimulationConfig,
     tied_actions,
@@ -1819,6 +1996,8 @@ def simulate_turn(
 
         # Showdown dynamically refreshes remaining action Speed in Gen 8+.
         # Rebuilding the queue on each loop iteration reproduces that behavior.
+
+    _apply_end_of_turn_residuals(state, events)
 
     return TurnSimulationResult(
         state=state,
