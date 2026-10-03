@@ -35,6 +35,8 @@ Before recommending any action, evaluate in this order:
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
 - [ ] Add hidden-set sampling and deeper search.
+- [x] Add data-agnostic hidden-set hypothesis filtering, weighted sampling, and weighted damage estimates.
+- [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
 
 ## Important design principle
 
