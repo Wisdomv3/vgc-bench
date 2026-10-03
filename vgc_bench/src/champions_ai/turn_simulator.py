@@ -1144,7 +1144,7 @@ def _apply_damage(
     wide_guard_sides: set[TurnSide],
     config: TurnSimulationConfig,
     gen: int,
-) -> bool:
+) -> int:
     attacker = state.profile(side, actor)
     defender = state.profile(target_side, target_name)
     move_id = normalize_move_id(move_profile.move_id)
@@ -1294,7 +1294,27 @@ def _apply_damage(
         target_side=target_side,
         target_name=target_name,
     )
-    new_hp = max(0, defender.current_hp - damage)
+
+    if (
+        normalize_move_id(defender.item or "") == "focussash"
+        and defender.current_hp == defender.max_hp
+        and damage >= defender.current_hp
+    ):
+        damage = max(0, defender.current_hp - 1)
+        defender = replace(defender, item=None)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.ITEM,
+                side=target_side,
+                actor=target_name,
+                move="focussash",
+                target=target_name,
+                detail=f"{target_name} survived with Focus Sash.",
+            )
+        )
+
+    actual_damage = min(damage, defender.current_hp)
+    new_hp = max(0, defender.current_hp - actual_damage)
 
     state.profiles[(target_side, target_name)] = replace(
         defender,
@@ -1307,10 +1327,21 @@ def _apply_damage(
             actor=actor,
             move=move_id,
             target=target_name,
-            damage=damage,
+            damage=actual_damage,
             detail=f"{target_name}: {defender.current_hp} -> {new_hp} HP",
         )
     )
+
+    if actual_damage > 0:
+        _apply_contact_punishment(
+            state,
+            events,
+            attacker_side=side,
+            attacker_name=actor,
+            defender_side=target_side,
+            defender_name=target_name,
+            move=move,
+        )
 
     if defender.current_hp > 0 and new_hp == 0:
         events.append(
@@ -1321,9 +1352,9 @@ def _apply_damage(
                 detail=f"{target_name} fainted.",
             )
         )
-        return damage > 0
+        return actual_damage
 
-    if damage > 0:
+    if actual_damage > 0:
         _apply_secondary_effects(
             state,
             speed_states,
@@ -1337,7 +1368,7 @@ def _apply_damage(
             config=config,
         )
 
-    return damage > 0
+    return actual_damage
 
 
 def _execute_switch(
