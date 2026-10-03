@@ -1882,6 +1882,10 @@ def _execute_switch(
     state.protect_streaks[(side, target)] = 0
     state.toxic_stages[(side, actor)] = 0
     state.toxic_stages[(side, target)] = 0
+    state.confusion_turns.pop((side, actor), None)
+    state.confusion_turns.pop((side, target), None)
+    state.must_recharge.discard((side, actor))
+    state.must_recharge.discard((side, target))
     events.append(
         SimulationEvent(
             type=SimulationEventType.SWITCH,
@@ -2209,6 +2213,15 @@ def _execute_move(
         move=move,
         total_damage_dealt=total_damage_dealt,
     )
+
+    self_effect = move.entry.get("self")
+    if (
+        total_damage_dealt > 0
+        and state.profile(side, actor).current_hp > 0
+        and isinstance(self_effect, dict)
+        and normalize_move_id(self_effect.get("volatileStatus", "")) == "mustrecharge"
+    ):
+        state.must_recharge.add((side, actor))
 
 
 def _sandstorm_immune(profile: CombatantProfile) -> bool:
