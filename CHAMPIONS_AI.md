@@ -39,6 +39,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
 - [x] Add a transparent opponent-action probability model with context-specific habit tracking.
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
+- [x] Add exact turn action ordering for switches, priority, Speed, Tailwind, Trick Room, and Speed ties.
 - [ ] Add a mechanics-based turn outcome evaluator for response-matrix cells.
 - [ ] Learn/calibrate opponent-action priors and habit blending from replay data.
 
