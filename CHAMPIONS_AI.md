@@ -27,7 +27,7 @@ Before recommending any action, evaluate in this order:
 - [ ] Build exact damage-calculation layer and verify it against established damage-calculator outputs.
 - [x] Build initial effective-speed calculation.
 - [ ] Build Fake Out / Protect / field-condition trackers.
-- [ ] Enumerate legal joint actions.
+- [x] Enumerate legal joint actions.
 - [ ] Add rule-based catastrophic-error guards.
 - [ ] Rank candidate actions with a heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
