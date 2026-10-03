@@ -194,6 +194,57 @@ def _state_signature(state: ExactTurnState) -> tuple:
             for (side, name), move_id in state.last_moves.items()
         )
     )
+    disabled_moves = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                move_id,
+                remaining,
+            )
+            for (side, name), (move_id, remaining) in state.disabled_moves.items()
+        )
+    )
+    taunt_turns = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                remaining,
+            )
+            for (side, name), remaining in state.taunt_turns.items()
+        )
+    )
+    encore_locks = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                move_id,
+                remaining,
+            )
+            for (side, name), (move_id, remaining) in state.encore_locks.items()
+        )
+    )
+    imprison_users = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+            )
+            for side, name in state.imprison_users
+        )
+    )
+    known_moves = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                tuple(sorted(moves)),
+            )
+            for (side, name), moves in state.known_moves.items()
+        )
+    )
     return (
         profiles,
         active_slots,
@@ -209,6 +260,11 @@ def _state_signature(state: ExactTurnState) -> tuple:
         truant_loaf,
         choice_locks,
         last_moves,
+        disabled_moves,
+        taunt_turns,
+        encore_locks,
+        imprison_users,
+        known_moves,
         tuple(sorted(state.field_conditions)),
     )
 
