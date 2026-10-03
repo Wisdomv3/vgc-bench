@@ -74,12 +74,14 @@ def _hypothesis(
     ability: str | None = None,
     stats: dict[str, int] | None = None,
     current_hp: int = 150,
+    max_hp: int = 150,
 ):
     return SetHypothesis(
         label=label,
         profile=_profile(
             label,
             current_hp=current_hp,
+            max_hp=max_hp,
             stats=stats,
             item=item,
             ability=ability,
@@ -209,6 +211,7 @@ def test_hidden_defender_damage_is_weighted_across_sets() -> None:
         moves=("Protect",),
         weight=1,
         current_hp=160,
+        max_hp=180,
         stats={
             "atk": 100,
             "def": 160,
