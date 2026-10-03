@@ -37,6 +37,8 @@ Before recommending any action, evaluate in this order:
 - [ ] Add hidden-set sampling and deeper search.
 - [x] Add data-agnostic hidden-set hypothesis filtering, weighted sampling, and weighted damage estimates.
 - [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
+- [x] Add a transparent opponent-action probability model with context-specific habit tracking.
+- [ ] Learn/calibrate opponent-action priors and habit blending from replay data.
 
 ## Important design principle
 
