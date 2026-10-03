@@ -929,6 +929,113 @@ def _clear_status(
     )
 
 
+def _selection_restriction_allows_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+) -> bool:
+    key = (side, actor)
+    profile = state.profile(side, actor)
+    move_id = move.id
+
+    locked_move = state.choice_locks.get(key)
+    item = normalize_move_id(profile.item or "")
+    ability = normalize_move_id(profile.ability or "")
+    lock_active = item in CHOICE_ITEMS or ability == "gorillatactics"
+
+    if (
+        lock_active
+        and locked_move is not None
+        and move_id not in {locked_move, "struggle"}
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=(
+                    f"{actor} is locked into {locked_move} and cannot use "
+                    f"{move_id}."
+                ),
+            )
+        )
+        return False
+
+    if (
+        bool(move.entry.get("flags", {}).get("cantusetwice", False))
+        and state.last_moves.get(key) == move_id
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=f"{actor} cannot use {move_id} twice in a row.",
+            )
+        )
+        return False
+
+    return True
+
+
+def _record_committed_move(
+    state: ExactTurnState,
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+) -> None:
+    key = (side, actor)
+    state.last_moves[key] = move.id
+
+    profile = state.profile(side, actor)
+    item = normalize_move_id(profile.item or "")
+    ability = normalize_move_id(profile.ability or "")
+
+    if (
+        move.id != "struggle"
+        and key not in state.choice_locks
+        and (item in CHOICE_ITEMS or ability == "gorillatactics")
+    ):
+        state.choice_locks[key] = move.id
+
+
+def _truant_allows_move(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+) -> bool:
+    profile = state.profile(side, actor)
+    if normalize_move_id(profile.ability or "") != "truant":
+        state.truant_loaf.discard((side, actor))
+        return True
+
+    key = (side, actor)
+    if key in state.truant_loaf:
+        state.truant_loaf.discard(key)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.CANNOT_MOVE,
+                side=side,
+                actor=actor,
+                move=move.id,
+                detail=f"{actor} is loafing around because of Truant.",
+            )
+        )
+        return False
+
+    state.truant_loaf.add(key)
+    return True
+
+
 def _sleep_or_freeze_allows_move(
     state: ExactTurnState,
     speed_states: dict[tuple[TurnSide, str], SpeedState],
