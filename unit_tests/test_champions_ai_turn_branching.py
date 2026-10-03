@@ -385,6 +385,13 @@ DIRE_CLAW = MoveProfile(
     move_type="poison",
 )
 
+TACKLE = MoveProfile(
+    move_id="tackle",
+    base_power=40,
+    category="physical",
+    move_type="normal",
+)
+
 
 def _secondary_only_policy(*, merge: bool = True) -> BranchingPolicy:
     return BranchingPolicy(
@@ -408,7 +415,7 @@ def test_rock_slide_flinch_branches_and_can_cancel_move() -> None:
         _pass(1, "whimsicott"),
     )
     theirs = _joint(
-        _move(0, "salamence", "Body Slam", target_position=1),
+        _move(0, "salamence", "Tackle", target_position=1),
         _pass(1, "sneasler"),
     )
 
@@ -419,7 +426,7 @@ def test_rock_slide_flinch_branches_and_can_cancel_move() -> None:
         _speeds(garchomp=200, salamence=100),
         _profiles(
             (TurnSide.PLAYER, "garchomp", ROCK_SLIDE),
-            (TurnSide.OPPONENT, "salamence", BODY_SLAM),
+            (TurnSide.OPPONENT, "salamence", TACKLE),
         ),
         policy=_secondary_only_policy(merge=False),
     )
@@ -446,7 +453,7 @@ def test_inner_focus_prevents_rock_slide_flinch() -> None:
         _pass(1, "whimsicott"),
     )
     theirs = _joint(
-        _move(0, "salamence", "Body Slam", target_position=1),
+        _move(0, "salamence", "Tackle", target_position=1),
         _pass(1, "sneasler"),
     )
 
@@ -457,7 +464,7 @@ def test_inner_focus_prevents_rock_slide_flinch() -> None:
         _speeds(garchomp=200, salamence=100),
         _profiles(
             (TurnSide.PLAYER, "garchomp", ROCK_SLIDE),
-            (TurnSide.OPPONENT, "salamence", BODY_SLAM),
+            (TurnSide.OPPONENT, "salamence", TACKLE),
         ),
         policy=_secondary_only_policy(),
     )
