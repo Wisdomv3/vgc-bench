@@ -82,6 +82,8 @@ class TurnOutcomeDistribution:
 
 def _profile_signature(profile) -> tuple:
     return (
+        profile.level,
+        tuple(sorted(profile.stats.items())),
         profile.current_hp,
         profile.max_hp,
         profile.status,
@@ -307,6 +309,14 @@ def _state_signature(state: ExactTurnState) -> tuple:
         attractions,
         move_pp,
         tuple(sorted(state.field_conditions)),
+        tuple(sorted((side.value, n) for side, n in state.tailwind_turns.items())),
+        state.trick_room_turns,
+        state.terrain_turns,
+        state.weather_turns,
+        tuple(sorted(
+            (side.value, name, v)
+            for (side, name), v in state.first_turn.items()
+        )),
     )
 
 

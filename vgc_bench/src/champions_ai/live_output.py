@@ -145,10 +145,23 @@ def _recommendation_reasons(
     reasons: list[str] = []
 
     if option.expected_value is not None:
-        reasons.append(
-            "Highest modeled expected position change "
-            f"({_score(option.expected_value)})."
-        )
+        search = report.search_diagnostics
+        if search is not None and search.completed_depth > 1:
+            reasons.append(
+                f"Highest modeled expected change over up to "
+                f"{search.completed_depth} turns "
+                f"({_score(option.expected_value)})."
+            )
+        else:
+            reasons.append(
+                "Highest modeled expected position change "
+                f"({_score(option.expected_value)})."
+            )
+        if search is not None and (search.cutoffs or search.budget_exhausted):
+            reasons.append(
+                "Search reached limits; some branches use shorter-horizon values."
+            )
+            return tuple(reasons[:2])
 
     warnings = tuple(
         finding

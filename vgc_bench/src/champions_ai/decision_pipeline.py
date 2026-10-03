@@ -12,7 +12,7 @@ The current value model is still the transparent position heuristic used by
 mechanics_evaluator, not a calibrated match win probability.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from poke_env.battle import DoubleBattle
@@ -55,6 +55,12 @@ from vgc_bench.src.champions_ai.opponent_model import (
 )
 from vgc_bench.src.champions_ai.position_value import PositionWeights
 from vgc_bench.src.champions_ai.response_matrix import ActionResponseSummary
+from vgc_bench.src.champions_ai.search import (
+    SearchConfig,
+    SearchDiagnostics,
+    build_search_analysis,
+    prepare_search_state,
+)
 from vgc_bench.src.champions_ai.snapshot import DecisionSnapshot
 from vgc_bench.src.champions_ai.speed import SpeedState
 from vgc_bench.src.champions_ai.speed_context import speed_states_from_exact_state
@@ -88,6 +94,7 @@ class DecisionReport:
     response_summaries: tuple[ActionResponseSummary, ...]
     findings: tuple[GuardFinding, ...]
     model: str = "mechanics_decision_pipeline_v0"
+    search_diagnostics: SearchDiagnostics | None = None
 
     @property
     def recommendation(self) -> DecisionOption | None:
@@ -186,6 +193,7 @@ def rank_decision(
     habit_weight: float = 0.0,
     branching_policy: BranchingPolicy | None = None,
     position_weights: PositionWeights | None = None,
+    search_config: SearchConfig | None = None,
     scenario_provider: Callable[
         [JointAction],
         tuple[HiddenStateScenario, ...],
@@ -244,6 +252,24 @@ def rank_decision(
             findings=rule_findings,
         )
 
+    if search_config is not None and search_config.depth > 1:
+        exact_state = prepare_search_state(snapshot, exact_state)
+        if scenario_provider is not None:
+            raw_provider = scenario_provider
+            scenario_cache: dict[tuple, tuple[HiddenStateScenario, ...]] = {}
+
+            def prepared_scenarios(action: JointAction):
+                if action.key not in scenario_cache:
+                    scenario_cache[action.key] = tuple(
+                        replace(scenario, state=prepare_search_state(
+                            snapshot, scenario.state
+                        ))
+                        for scenario in raw_provider(action)
+                    )
+                return scenario_cache[action.key]
+
+            scenario_provider = prepared_scenarios
+
     analysis = build_mechanics_response_analysis(
         exact_state,
         simulation_actions,
@@ -256,6 +282,19 @@ def rank_decision(
         gen=gen,
     )
 
+    search_diagnostics = None
+    if search_config is not None:
+        search = build_search_analysis(
+            snapshot, exact_state, analysis, simulation_actions,
+            opponent_estimates, speed_states, move_profiles,
+            config=search_config,
+            branching_policy=branching_policy,
+            position_weights=position_weights,
+            scenario_provider=scenario_provider,
+            gen=gen,
+        )
+        analysis = search.analysis
+        search_diagnostics = search.diagnostics
     dominance_findings = strictly_dominated_findings(analysis.summaries)
     loss_findings = _guaranteed_loss_findings(
         analysis,
@@ -330,6 +369,13 @@ def rank_decision(
         opponent_estimates=opponent_estimates,
         response_summaries=analysis.summaries,
         findings=all_findings,
+        model=(
+            "mechanics_search_pipeline_v1"
+            if search_diagnostics is not None
+            and search_diagnostics.completed_depth > 1
+            else "mechanics_decision_pipeline_v0"
+        ),
+        search_diagnostics=search_diagnostics,
     )
 
 
@@ -352,6 +398,7 @@ def rank_showdown_decision(
     habit_weight: float = 0.0,
     branching_policy: BranchingPolicy | None = None,
     position_weights: PositionWeights | None = None,
+    search_config: SearchConfig | None = None,
     gen: int = 9,
 ) -> DecisionReport:
     """Build live Showdown inputs and run one end-to-end decision calculation.
@@ -413,6 +460,7 @@ def rank_showdown_decision(
         habit_weight=habit_weight,
         branching_policy=branching_policy,
         position_weights=position_weights,
+        search_config=search_config,
         scenario_provider=scenario_provider,
         gen=gen,
     )

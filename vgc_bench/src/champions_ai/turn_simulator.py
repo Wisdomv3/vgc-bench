@@ -163,6 +163,13 @@ class ExactTurnState:
     known_moves: dict[tuple[TurnSide, str], set[str]] = field(default_factory=dict)
     move_pp: dict[tuple[TurnSide, str, str], int] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
+    # Remaining turns include the turn about to be simulated. None/missing
+    # means unknown; search stops rather than treating those fields as permanent.
+    tailwind_turns: dict[TurnSide, int] = field(default_factory=dict)
+    trick_room_turns: int | None = None
+    terrain_turns: int | None = None
+    weather_turns: int | None = None
+    first_turn: dict[tuple[TurnSide, str], bool] = field(default_factory=dict)
 
     def copy(self) -> "ExactTurnState":
         return ExactTurnState(
@@ -192,6 +199,11 @@ class ExactTurnState:
             },
             move_pp=dict(self.move_pp),
             field_conditions=set(self.field_conditions),
+            tailwind_turns=dict(self.tailwind_turns),
+            trick_room_turns=self.trick_room_turns,
+            terrain_turns=self.terrain_turns,
+            weather_turns=self.weather_turns,
+            first_turn=dict(self.first_turn),
         )
 
     def profile(self, side: TurnSide, name: str) -> CombatantProfile:
@@ -2669,6 +2681,10 @@ def _execute_switch(
         raise UnsupportedTurnMechanic("cannot switch to an already active Pokemon")
 
     state.active_slots[(side, action.slot)] = target
+    state.profiles[(side, actor)] = replace(state.profile(side, actor), boosts={})
+    state.profiles[(side, target)] = replace(target_profile, boosts={})
+    state.first_turn[(side, actor)] = False
+    state.first_turn[(side, target)] = True
     state.protect_streaks[(side, actor)] = 0
     state.protect_streaks[(side, target)] = 0
     state.toxic_stages[(side, actor)] = 0
@@ -2889,6 +2905,15 @@ def _execute_move(
         move=move,
     )
 
+    if move_id == "fakeout" and state.first_turn.get((side, actor)) is False:
+        state.protect_streaks[(side, actor)] = 0
+        events.append(SimulationEvent(
+            type=SimulationEventType.BLOCKED,
+            side=side, actor=actor, move=move_id,
+            detail="Fake Out failed after the first turn following entry.",
+        ))
+        return
+
     if move_id in STALL_MOVES:
         streak_key = (side, actor)
         previous_streak = state.protect_streaks.get(streak_key, 0)
@@ -2955,7 +2980,15 @@ def _execute_move(
         return
 
     if move_id == "tailwind":
+        if side in state.tailwind_sides:
+            events.append(SimulationEvent(
+                type=SimulationEventType.BLOCKED,
+                side=side, actor=actor, move=move_id,
+                detail="Tailwind is already active and cannot be refreshed.",
+            ))
+            return
         state.tailwind_sides.add(side)
+        state.tailwind_turns[side] = 4
         _sync_tailwind_speed_states(speed_states, side, True)
         events.append(
             SimulationEvent(
@@ -2970,6 +3003,7 @@ def _execute_move(
 
     if move_id == "trickroom":
         state.trick_room = not state.trick_room
+        state.trick_room_turns = 5 if state.trick_room else 0
         events.append(
             SimulationEvent(
                 type=SimulationEventType.FIELD,
@@ -2996,6 +3030,8 @@ def _execute_move(
 
     if move.terrain is not None:
         state.terrain = move.terrain.name.lower()
+        item = normalize_move_id(state.profile(side, actor).item or "")
+        state.terrain_turns = 8 if item == "terrainextender" else 5
         events.append(
             SimulationEvent(
                 type=SimulationEventType.FIELD,
@@ -3369,6 +3405,24 @@ def _choose_speed_tie(
     )
 
 
+def _tick_field_durations(state: ExactTurnState) -> None:
+    for side, remaining in tuple(state.tailwind_turns.items()):
+        state.tailwind_turns[side] = max(0, remaining - 1)
+        if state.tailwind_turns[side] == 0:
+            state.tailwind_sides.discard(side)
+    for duration, active, expired in (
+        ("trick_room_turns", "trick_room", False),
+        ("terrain_turns", "terrain", None),
+        ("weather_turns", "weather", None),
+    ):
+        remaining = getattr(state, duration)
+        if remaining is not None:
+            remaining = max(0, remaining - 1)
+            setattr(state, duration, remaining)
+            if remaining == 0:
+                setattr(state, active, expired)
+
+
 def simulate_turn(
     initial_state: ExactTurnState,
     our_action: JointAction,
@@ -3462,6 +3516,11 @@ def simulate_turn(
 
         if action.kind is ActionKind.SWITCH:
             _execute_switch(state, events, scheduled.side, action)
+            if action.switch_to is not None:
+                _sync_speed_profile(
+                    speed_states, scheduled.side, action.switch_to,
+                    state.profile(scheduled.side, action.switch_to),
+                )
         elif action.kind is ActionKind.MOVE:
             _execute_move(
                 state,
@@ -3492,6 +3551,10 @@ def simulate_turn(
         # Rebuilding the queue on each loop iteration reproduces that behavior.
 
     _apply_end_of_turn_residuals(state, events)
+    _tick_field_durations(state)
+    for (side, slot), name in state.active_slots.items():
+        if initial_state.active_name(side, slot) == name:
+            state.first_turn[(side, name)] = False
 
     return TurnSimulationResult(
         state=state,

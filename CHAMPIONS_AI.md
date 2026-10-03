@@ -45,7 +45,7 @@ Before recommending any action, evaluate in this order:
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
-- [ ] Add hidden-set sampling and deeper search.
+- [x] Add hidden-set scenarios and bounded multi-turn search over supported mechanics.
 - [x] Add data-agnostic hidden-set hypothesis filtering, weighted sampling, and weighted damage estimates.
 - [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
 - [x] Add a transparent opponent-action probability model with context-specific habit tracking.
@@ -63,6 +63,49 @@ Before recommending any action, evaluate in this order:
 - [x] Add a mechanics-based turn outcome evaluator that converts weighted simulated outcomes into transparent position-score changes and plugs them into the response matrix.
 - [ ] Replace the temporary position heuristic with a calibrated match-value / win-probability model.
 - [ ] Learn/calibrate opponent-action priors and habit blending from replay data.
+
+## Multi-turn search checkpoint
+
+Pass `search_config=SearchConfig(depth=2)` to `rank_decision` or
+`rank_showdown_decision` to search this turn plus the next turn. The import is
+`from vgc_bench.src.champions_ai.search import SearchConfig`.
+Omitting the argument preserves the original one-turn ranking.
+
+Search keeps weighted hidden worlds fixed, combines opponent responses with
+enabled battle RNG, groups indistinguishable public observations, and selects
+one continuation per information set. It uses iterative deepening and full-state
+caches. Limits apply between turn simulations, and incomplete iterations retain
+the last completed depth. The optional observation-branch cap keeps rare branch
+probability mass and evaluates those branches at their shorter leaf horizon.
+
+`DecisionReport.search_diagnostics` reports requested/completed depth, simulation
+count, cache hits, budget exhaustion, and early-cutoff counts. Live output shows
+the horizon and any shorter-horizon caveat. Opponent continuation priors are
+explicit neutral priors with a configurable switch weight, not learned optimal
+opponent play. Root priors and habits continue to use the existing model.
+
+Supported field timers, entry history/Fake Out, PP, status, recharge, restriction
+counters, items, and Speed survive the simulated transitions. Active Tailwind
+cannot be refreshed, and ordinary switches reset stat boosts. Known Tailwind
+and Trick Room durations are copied from the decision snapshot. Weather/terrain
+durations must be supplied when known; unknown field durations stop deeper
+search. Gravity and other fields without supported timers also stop it.
+
+Forced replacements, missing move information/damage models, and unsupported
+mechanics stop at labelled leaves. This version does not implement a complete
+replacement phase, full switch-entry effects/trapping, new gimmick use on future
+turns, full activation/order-based Bayesian observation inference, or calibrated
+match win probabilities. Observation grouping is deliberately conservative.
+Terminal detection uses the supplied modeled roster; unseen bench Pokemon are
+not invented. Scores are still the existing transparent position heuristic.
+
+Run `python -m vgc_bench.src.champions_ai.search_demo` for the controlled example.
+It uses synthetic stats/powers and fixed RNG: one-turn search takes an immediate
+KO, while two-turn search chooses Protect plus Tailwind to win more afterward.
+
+Next milestones: model forced-replacement decisions and switch-entry effects,
+expand exact mechanic coverage, improve public observation inference, benchmark
+search depth/caps, and calibrate the value function and opponent priors.
 
 ## Important design principle
 

@@ -7,7 +7,7 @@ opponent action, replaces the opponent's exact stats/item/ability with each
 compatible set, preserves all public battle information, and refreshes Speed.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from itertools import product
 
 from vgc_bench.src.champions_ai.actions import ActionKind, JointAction
@@ -44,6 +44,9 @@ class HiddenStateScenario:
     state: ExactTurnState
     speed_states: dict[tuple[TurnSide, str], SpeedState]
     labels: tuple[str, ...]
+    move_sets: dict[tuple[TurnSide, str], frozenset[str]] = field(
+        default_factory=dict
+    )
 
 
 def _snapshot_by_name(
@@ -237,6 +240,12 @@ def hidden_state_scenarios(
     required_moves, relevant_names = _action_requirements(
         opponent_action
     )
+    # Keep idle and bench Pokemon's hidden sets fixed for future search turns.
+    relevant_names.update(
+        name for (side, name) in base_state.profiles
+        if side is TurnSide.OPPONENT
+        and _hypotheses_for_name(hidden_hypotheses, name)
+    )
 
     option_groups: list[
         tuple[
@@ -342,6 +351,7 @@ def hidden_state_scenarios(
     for probability, combination in raw:
         state = base_state.copy()
         labels: list[str] = []
+        move_sets: dict[tuple[TurnSide, str], frozenset[str]] = {}
 
         for name, entry, pokemon_snapshot in combination:
             key = (TurnSide.OPPONENT, name)
@@ -355,6 +365,7 @@ def hidden_state_scenarios(
                 state.profiles[key],
                 entry.hypothesis,
             )
+            move_sets[key] = frozenset(entry.hypothesis.normalized_moves)
             labels.append(
                 f"{name}:{entry.hypothesis.label}"
             )
@@ -368,6 +379,7 @@ def hidden_state_scenarios(
                     base_speed_states,
                 ),
                 labels=tuple(labels),
+                move_sets=move_sets,
             )
         )
 
