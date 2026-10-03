@@ -529,6 +529,253 @@ def _damage_amount(
     return damage_rolls[config.damage_roll_index]
 
 
+def _max_hp_fraction(
+    max_hp: int,
+    numerator: int,
+    denominator: int,
+) -> int:
+    return max(1, max_hp * numerator // denominator)
+
+
+def _round_fraction(
+    value: int,
+    numerator: int,
+    denominator: int,
+) -> int:
+    """Positive integer Math.round-style fraction used by Showdown recoil."""
+
+    return max(
+        1,
+        (value * numerator * 2 + denominator) // (2 * denominator),
+    )
+
+
+def _apply_indirect_damage(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    name: str,
+    amount: int,
+    event_type: SimulationEventType,
+    detail: str,
+    source_side: TurnSide | None = None,
+    source_name: str | None = None,
+) -> int:
+    profile = state.profile(side, name)
+    if profile.current_hp <= 0:
+        return 0
+
+    if normalize_move_id(profile.ability or "") == "magicguard":
+        return 0
+
+    dealt = min(max(0, amount), profile.current_hp)
+    if dealt <= 0:
+        return 0
+
+    updated = replace(
+        profile,
+        current_hp=profile.current_hp - dealt,
+    )
+    state.profiles[(side, name)] = updated
+
+    events.append(
+        SimulationEvent(
+            type=event_type,
+            side=source_side or side,
+            actor=source_name or name,
+            target=name,
+            damage=dealt,
+            detail=detail,
+        )
+    )
+
+    if updated.current_hp == 0:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.FAINT,
+                side=side,
+                actor=name,
+                detail=f"{name} fainted.",
+            )
+        )
+
+    return dealt
+
+
+def _heal_profile(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    name: str,
+    amount: int,
+    detail: str,
+) -> int:
+    profile = state.profile(side, name)
+    if profile.current_hp <= 0 or profile.current_hp >= profile.max_hp:
+        return 0
+
+    healed = min(amount, profile.max_hp - profile.current_hp)
+    if healed <= 0:
+        return 0
+
+    state.profiles[(side, name)] = replace(
+        profile,
+        current_hp=profile.current_hp + healed,
+    )
+    events.append(
+        SimulationEvent(
+            type=SimulationEventType.HEAL,
+            side=side,
+            actor=name,
+            target=name,
+            damage=-healed,
+            detail=detail,
+        )
+    )
+    return healed
+
+
+def _move_makes_contact(
+    attacker: CombatantProfile,
+    move: Move,
+) -> bool:
+    if not move.entry.get("flags", {}).get("contact"):
+        return False
+
+    if normalize_move_id(attacker.ability or "") == "longreach":
+        return False
+
+    if normalize_move_id(attacker.item or "") == "protectivepads":
+        return False
+
+    return True
+
+
+def _apply_contact_punishment(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    attacker_side: TurnSide,
+    attacker_name: str,
+    defender_side: TurnSide,
+    defender_name: str,
+    move: Move,
+) -> None:
+    attacker = state.profile(attacker_side, attacker_name)
+    defender = state.profile(defender_side, defender_name)
+
+    if (
+        attacker.current_hp <= 0
+        or defender.current_hp <= 0
+        or not _move_makes_contact(attacker, move)
+    ):
+        return
+
+    defender_ability = normalize_move_id(defender.ability or "")
+    if defender_ability in {"roughskin", "ironbarbs"}:
+        attacker = state.profile(attacker_side, attacker_name)
+        _apply_indirect_damage(
+            state,
+            events,
+            side=attacker_side,
+            name=attacker_name,
+            amount=_max_hp_fraction(attacker.max_hp, 1, 8),
+            event_type=SimulationEventType.CONTACT_DAMAGE,
+            detail=(
+                f"{attacker_name} took contact damage from "
+                f"{defender_ability}."
+            ),
+            source_side=defender_side,
+            source_name=defender_name,
+        )
+
+    attacker = state.profile(attacker_side, attacker_name)
+    if (
+        attacker.current_hp > 0
+        and normalize_move_id(defender.item or "") == "rockyhelmet"
+    ):
+        _apply_indirect_damage(
+            state,
+            events,
+            side=attacker_side,
+            name=attacker_name,
+            amount=_max_hp_fraction(attacker.max_hp, 1, 6),
+            event_type=SimulationEventType.CONTACT_DAMAGE,
+            detail=f"{attacker_name} took Rocky Helmet damage.",
+            source_side=defender_side,
+            source_name=defender_name,
+        )
+
+
+def _apply_move_recoil(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    total_damage_dealt: int,
+) -> None:
+    if total_damage_dealt <= 0 or not move.entry.get("recoil"):
+        return
+
+    profile = state.profile(side, actor)
+    if profile.current_hp <= 0:
+        return
+
+    ability = normalize_move_id(profile.ability or "")
+    if ability in {"magicguard", "rockhead"}:
+        return
+
+    numerator, denominator = move.entry["recoil"]
+    amount = _round_fraction(
+        total_damage_dealt,
+        int(numerator),
+        int(denominator),
+    )
+    _apply_indirect_damage(
+        state,
+        events,
+        side=side,
+        name=actor,
+        amount=amount,
+        event_type=SimulationEventType.RECOIL,
+        detail=f"{actor} took recoil from {move.id}.",
+    )
+
+
+def _apply_life_orb_recoil(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    actor: str,
+    move: Move,
+    total_damage_dealt: int,
+) -> None:
+    if total_damage_dealt <= 0 or move.category is MoveCategory.STATUS:
+        return
+
+    profile = state.profile(side, actor)
+    if (
+        profile.current_hp <= 0
+        or normalize_move_id(profile.item or "") != "lifeorb"
+    ):
+        return
+
+    _apply_indirect_damage(
+        state,
+        events,
+        side=side,
+        name=actor,
+        amount=_max_hp_fraction(profile.max_hp, 1, 10),
+        event_type=SimulationEventType.RECOIL,
+        detail=f"{actor} took Life Orb recoil.",
+    )
+
+
 def _sync_speed_profile(
     speed_states: dict[tuple[TurnSide, str], SpeedState],
     side: TurnSide,
