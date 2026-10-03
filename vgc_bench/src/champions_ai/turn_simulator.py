@@ -55,7 +55,6 @@ PROTECT_BLOCK_MOVES = {
 }
 
 STALL_MOVES = PROTECT_BLOCK_MOVES | {
-    "endure",
     "wideguard",
 }
 
@@ -888,6 +887,7 @@ def _apply_damage(
     target_side: TurnSide,
     target_name: str,
     protected: set[tuple[TurnSide, str]],
+    wide_guard_sides: set[TurnSide],
     config: TurnSimulationConfig,
     gen: int,
 ) -> bool:
@@ -895,6 +895,48 @@ def _apply_damage(
     defender = state.profile(target_side, target_name)
     move_id = normalize_move_id(move_profile.move_id)
     move = Move(move_id, gen)
+
+    priority = _effective_move_priority(
+        state,
+        side,
+        actor,
+        move,
+    )
+    if psychic_terrain_blocks_priority(
+        defender,
+        priority=priority,
+        source_is_ally=side is target_side,
+        terrain=state.terrain,
+        field_conditions=state.field_conditions,
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.PRIORITY_BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail="Blocked by Psychic Terrain.",
+            )
+        )
+        return False
+
+    if (
+        target_side in wide_guard_sides
+        and wide_guard_blocks(move)
+        and not move.breaks_protect
+    ):
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.BLOCKED,
+                side=side,
+                actor=actor,
+                move=move_id,
+                target=target_name,
+                detail="Blocked by Wide Guard.",
+            )
+        )
+        return False
 
     protected_key = (target_side, target_name)
     if protected_key in protected:
@@ -1091,6 +1133,8 @@ def _execute_move(
     speed_states: dict[tuple[TurnSide, str], SpeedState],
     events: list[SimulationEvent],
     protected: set[tuple[TurnSide, str]],
+    wide_guard_sides: set[TurnSide],
+    redirections: dict[TurnSide, tuple[str, str]],
     flinched: set[tuple[TurnSide, str]],
     move_profiles: dict[tuple[TurnSide, str, str], MoveProfile],
     config: TurnSimulationConfig,
@@ -1133,7 +1177,7 @@ def _execute_move(
     move_id = normalize_move_id(action.move)
     move = Move(move_id, gen)
 
-    if move_id in PROTECT_BLOCK_MOVES:
+    if move_id in STALL_MOVES:
         streak_key = (side, actor)
         previous_streak = state.protect_streaks.get(streak_key, 0)
 
@@ -1156,10 +1200,15 @@ def _execute_move(
             success = True
 
         if success:
-            protected.add(streak_key)
             state.protect_streaks[streak_key] = min(previous_streak + 1, 6)
-            event_type = SimulationEventType.PROTECT
-            detail = "Protect-like protection is active."
+            if move_id == "wideguard":
+                wide_guard_sides.add(side)
+                event_type = SimulationEventType.WIDE_GUARD
+                detail = "Wide Guard is active for this side."
+            else:
+                protected.add(streak_key)
+                event_type = SimulationEventType.PROTECT
+                detail = "Protect-like protection is active."
         else:
             state.protect_streaks[streak_key] = 0
             event_type = SimulationEventType.PROTECT_FAILED
@@ -1176,7 +1225,7 @@ def _execute_move(
         )
         return
 
-    # Using a non-stalling move resets the Protect/Detect stall chain.
+    # Using a non-stalling move resets the shared protection stall chain.
     state.protect_streaks[(side, actor)] = 0
 
     if move_id == "tailwind":
@@ -1206,6 +1255,32 @@ def _execute_move(
         )
         return
 
+    if move_id in {"followme", "ragepowder"}:
+        redirections[side] = (actor, move_id)
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.REDIRECT,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=f"{move_id} is redirecting eligible attacks.",
+            )
+        )
+        return
+
+    if move.terrain is not None:
+        state.terrain = move.terrain.name.lower()
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.FIELD,
+                side=side,
+                actor=actor,
+                move=move_id,
+                detail=f"Terrain changed to {state.terrain}.",
+            )
+        )
+        return
+
     key = _move_key(side, actor, move_id)
     if key not in move_profiles:
         if move.category is MoveCategory.STATUS:
@@ -1224,7 +1299,29 @@ def _execute_move(
             targets = [] if resolved is None else [resolved]
     else:
         resolved = _resolve_target(state, side, action)
-        targets = [] if resolved is None else [resolved]
+        redirected, original_target = _redirect_target(
+            state,
+            side,
+            actor,
+            move,
+            resolved,
+            redirections,
+        )
+        if original_target is not None and redirected is not None:
+            events.append(
+                SimulationEvent(
+                    type=SimulationEventType.REDIRECT,
+                    side=side,
+                    actor=actor,
+                    move=move_id,
+                    target=redirected[1],
+                    detail=(
+                        f"{move_id} was redirected from "
+                        f"{original_target} to {redirected[1]}."
+                    ),
+                )
+            )
+        targets = [] if redirected is None else [redirected]
 
     if not targets:
         events.append(
@@ -1260,6 +1357,7 @@ def _execute_move(
                 target_side=target_side,
                 target_name=target_name,
                 protected=protected,
+                wide_guard_sides=wide_guard_sides,
                 config=config,
                 gen=gen,
             )
@@ -1347,6 +1445,8 @@ def simulate_turn(
     ]
 
     protected: set[tuple[TurnSide, str]] = set()
+    wide_guard_sides: set[TurnSide] = set()
+    redirections: dict[TurnSide, tuple[str, str]] = {}
     flinched: set[tuple[TurnSide, str]] = set()
     events: list[SimulationEvent] = []
 
@@ -1394,6 +1494,8 @@ def simulate_turn(
                 speed_states,
                 events,
                 protected,
+                wide_guard_sides,
+                redirections,
                 flinched,
                 move_profiles,
                 config,
