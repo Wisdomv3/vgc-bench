@@ -9,7 +9,7 @@ Currently supported probability branches:
 - move accuracy for each target;
 - modern critical-hit odds;
 - damaging-move secondary effects, including flinches and stat/status effects;
-- before-move paralysis, sleep, freeze, confusion, and recharge checks;
+- before-move paralysis, sleep, freeze, confusion, attraction, and recharge checks;
 - repeated Protect/Detect-style success odds;
 - exact Speed ties.
 """
@@ -88,6 +88,7 @@ def _profile_signature(profile) -> tuple:
         tuple(sorted(profile.boosts.items())),
         profile.item,
         profile.ability,
+        profile.gender,
         tuple(profile.types),
     )
 
@@ -245,6 +246,43 @@ def _state_signature(state: ExactTurnState) -> tuple:
             for (side, name), moves in state.known_moves.items()
         )
     )
+    tormented = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+            )
+            for side, name in state.tormented
+        )
+    )
+    attractions = tuple(
+        sorted(
+            (
+                target_side.value,
+                target_name,
+                source_side.value,
+                source_name,
+            )
+            for (
+                target_side,
+                target_name,
+            ), (
+                source_side,
+                source_name,
+            ) in state.attractions.items()
+        )
+    )
+    move_pp = tuple(
+        sorted(
+            (
+                side.value,
+                name,
+                move_id,
+                pp,
+            )
+            for (side, name, move_id), pp in state.move_pp.items()
+        )
+    )
     return (
         profiles,
         active_slots,
@@ -265,6 +303,9 @@ def _state_signature(state: ExactTurnState) -> tuple:
         encore_locks,
         imprison_users,
         known_moves,
+        tormented,
+        attractions,
+        move_pp,
         tuple(sorted(state.field_conditions)),
     )
 
