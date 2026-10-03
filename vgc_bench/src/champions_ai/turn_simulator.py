@@ -133,6 +133,8 @@ class ExactTurnState:
     protect_streaks: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     toxic_stages: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     sleep_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    confusion_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    must_recharge: set[tuple[TurnSide, str]] = field(default_factory=set)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -146,6 +148,8 @@ class ExactTurnState:
             protect_streaks=dict(self.protect_streaks),
             toxic_stages=dict(self.toxic_stages),
             sleep_turns=dict(self.sleep_turns),
+            confusion_turns=dict(self.confusion_turns),
+            must_recharge=set(self.must_recharge),
             field_conditions=set(self.field_conditions),
         )
 
