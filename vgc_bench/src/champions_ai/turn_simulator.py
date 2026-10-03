@@ -2452,6 +2452,11 @@ def _execute_move(
     move = Move(move_id, gen)
 
     volatile_key = (side, actor)
+    disabled_move, taunted, _encore_move = _consume_turn_restrictions(
+        state,
+        volatile_key,
+    )
+
     if volatile_key in state.must_recharge:
         state.must_recharge.discard(volatile_key)
         state.truant_loaf.discard(volatile_key)
@@ -2512,6 +2517,18 @@ def _execute_move(
                 detail=f"{actor} flinched and could not move.",
             )
         )
+        return
+
+    if _status_restriction_block(
+        state,
+        events,
+        side=side,
+        actor=actor,
+        move=move,
+        disabled_move=disabled_move,
+        taunted=taunted,
+    ):
+        state.protect_streaks[(side, actor)] = 0
         return
 
     if not _confusion_allows_move(
@@ -2593,6 +2610,20 @@ def _execute_move(
 
     # Using a non-stalling move resets the shared protection stall chain.
     state.protect_streaks[(side, actor)] = 0
+
+    if _execute_restriction_status_move(
+        state,
+        events,
+        protected,
+        redirections,
+        move_profiles,
+        side=side,
+        actor=actor,
+        action=action,
+        move=move,
+        gen=gen,
+    ):
+        return
 
     if move_id == "tailwind":
         state.tailwind_sides.add(side)
