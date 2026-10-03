@@ -3032,6 +3032,12 @@ def simulate_turn(
     state = initial_state.copy()
     speed_states = dict(speed_states)
 
+    for profile_side, profile_actor, profile_move in move_profiles:
+        state.known_moves.setdefault(
+            (profile_side, profile_actor),
+            set(),
+        ).add(profile_move)
+
     for side in state.tailwind_sides:
         _sync_tailwind_speed_states(speed_states, side, True)
 
@@ -3051,6 +3057,17 @@ def simulate_turn(
     events: list[SimulationEvent] = []
 
     while any(action is not None for action in our_pending + opponent_pending):
+        _apply_encore_override_to_pending(
+            state,
+            TurnSide.PLAYER,
+            our_pending,
+        )
+        _apply_encore_override_to_pending(
+            state,
+            TurnSide.OPPONENT,
+            opponent_pending,
+        )
+
         priority_overrides = _derive_priority_overrides(
             state,
             our_pending,
