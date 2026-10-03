@@ -29,6 +29,7 @@ class PokemonState:
         }
     )
     protect_streak: int = 0
+    first_turn: bool | None = None
 
 
 @dataclass
@@ -98,6 +99,7 @@ class BattleState:
             pokemon.active_slot = event.slot
             pokemon.fainted = False
             pokemon.protect_streak = 0
+            pokemon.first_turn = True
             side_state.active_slots[event.slot] = name
 
         elif event.type in {EventType.MOVE_USED, EventType.MOVE_REVEALED}:
@@ -216,6 +218,13 @@ class BattleState:
                     "protect_streak_changed requires a non-negative integer"
                 )
             self.get_or_create_pokemon(side, name).protect_streak = event.value
+
+        elif event.type is EventType.FIRST_TURN_CHANGED:
+            side = self._require_side(event)
+            name = self._require_pokemon(event)
+            if not isinstance(event.value, bool):
+                raise ValueError("first_turn_changed requires a boolean value")
+            self.get_or_create_pokemon(side, name).first_turn = event.value
 
         elif event.type is EventType.NOTE:
             pass
