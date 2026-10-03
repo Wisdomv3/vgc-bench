@@ -1,7 +1,8 @@
 """Turn action ordering for Champions AI.
 
 This module mirrors the high-level queue ordering used by the pinned Pokemon
-Showdown simulator:
+Showdown simulator. Move-specific and ability-specific priority changes can be
+supplied through explicit priority overrides:
 
 1. lower action order first (normal switches happen before normal moves),
 2. higher move priority first,
@@ -65,12 +66,26 @@ def _action_order(action: SlotAction) -> int:
     raise ValueError(f"{action.kind.value} is not an executable turn action")
 
 
-def _move_priority(action: SlotAction, *, gen: int) -> int:
+def _move_priority(
+    side: TurnSide,
+    action: SlotAction,
+    *,
+    gen: int,
+    priority_overrides: dict[tuple[TurnSide, str, str], int] | None = None,
+) -> int:
     if action.kind is not ActionKind.MOVE:
         return 0
     if not action.move:
         raise ValueError("move action requires move")
-    return Move(normalize_move_id(action.move), gen).priority
+    if not action.actor:
+        raise ValueError("move action requires actor")
+
+    move_id = normalize_move_id(action.move)
+    key = (side, action.actor, move_id)
+    if priority_overrides and key in priority_overrides:
+        return priority_overrides[key]
+
+    return Move(move_id, gen).priority
 
 
 def _scheduled_actions(
@@ -79,6 +94,7 @@ def _scheduled_actions(
     speed_states: dict[tuple[TurnSide, str], SpeedState],
     *,
     gen: int,
+    priority_overrides: dict[tuple[TurnSide, str, str], int] | None = None,
 ) -> list[ScheduledAction]:
     scheduled: list[ScheduledAction] = []
 
@@ -100,7 +116,12 @@ def _scheduled_actions(
                 slot=action.slot,
                 action=action,
                 order=_action_order(action),
-                priority=_move_priority(action, gen=gen),
+                priority=_move_priority(
+                    side,
+                    action,
+                    gen=gen,
+                    priority_overrides=priority_overrides,
+                ),
                 speed=effective_speed(speed_states[key]),
             )
         )
@@ -146,6 +167,7 @@ def build_turn_order(
     *,
     trick_room: bool = False,
     gen: int = 9,
+    priority_overrides: dict[tuple[TurnSide, str, str], int] | None = None,
 ) -> tuple[TurnOrderGroup, ...]:
     """Return ordered action groups for one doubles turn.
 
@@ -159,6 +181,7 @@ def build_turn_order(
         our_action,
         speed_states,
         gen=gen,
+        priority_overrides=priority_overrides,
     )
     scheduled.extend(
         _scheduled_actions(
@@ -166,6 +189,7 @@ def build_turn_order(
             opponent_action,
             speed_states,
             gen=gen,
+            priority_overrides=priority_overrides,
         )
     )
 
