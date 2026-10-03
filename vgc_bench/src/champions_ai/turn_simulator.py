@@ -146,6 +146,15 @@ class ExactTurnState:
     truant_loaf: set[tuple[TurnSide, str]] = field(default_factory=set)
     choice_locks: dict[tuple[TurnSide, str], str] = field(default_factory=dict)
     last_moves: dict[tuple[TurnSide, str], str] = field(default_factory=dict)
+    disabled_moves: dict[tuple[TurnSide, str], tuple[str, int]] = field(
+        default_factory=dict
+    )
+    taunt_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    encore_locks: dict[tuple[TurnSide, str], tuple[str, int]] = field(
+        default_factory=dict
+    )
+    imprison_users: set[tuple[TurnSide, str]] = field(default_factory=set)
+    known_moves: dict[tuple[TurnSide, str], set[str]] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -164,6 +173,14 @@ class ExactTurnState:
             truant_loaf=set(self.truant_loaf),
             choice_locks=dict(self.choice_locks),
             last_moves=dict(self.last_moves),
+            disabled_moves=dict(self.disabled_moves),
+            taunt_turns=dict(self.taunt_turns),
+            encore_locks=dict(self.encore_locks),
+            imprison_users=set(self.imprison_users),
+            known_moves={
+                key: set(moves)
+                for key, moves in self.known_moves.items()
+            },
             field_conditions=set(self.field_conditions),
         )
 
