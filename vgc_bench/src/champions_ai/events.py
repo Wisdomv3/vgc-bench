@@ -37,6 +37,7 @@ class EventType(str, Enum):
     SIDE_CONDITION_CHANGED = "side_condition_changed"
     PROTECT_USED = "protect_used"
     PROTECT_STREAK_CHANGED = "protect_streak_changed"
+    FIRST_TURN_CHANGED = "first_turn_changed"
     NOTE = "note"
 
 
