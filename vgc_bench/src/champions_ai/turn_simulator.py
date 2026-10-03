@@ -79,6 +79,8 @@ class SimulationEventType(str, Enum):
     BOOST = "boost"
     FLINCH = "flinch"
     FLINCHED = "flinched"
+    CANNOT_MOVE = "cannot_move"
+    STATUS_CURED = "status_cured"
     BLOCKED = "blocked"
     ITEM = "item"
     RECOIL = "recoil"
@@ -130,6 +132,7 @@ class ExactTurnState:
     tailwind_sides: set[TurnSide] = field(default_factory=set)
     protect_streaks: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     toxic_stages: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
+    sleep_turns: dict[tuple[TurnSide, str], int] = field(default_factory=dict)
     field_conditions: set[str] = field(default_factory=set)
 
     def copy(self) -> "ExactTurnState":
@@ -142,6 +145,7 @@ class ExactTurnState:
             tailwind_sides=set(self.tailwind_sides),
             protect_streaks=dict(self.protect_streaks),
             toxic_stages=dict(self.toxic_stages),
+            sleep_turns=dict(self.sleep_turns),
             field_conditions=set(self.field_conditions),
         )
 
@@ -175,6 +179,7 @@ class TurnSimulationConfig:
     branch_accuracy: bool = False
     branch_critical_hits: bool = False
     branch_secondary_effects: bool = False
+    branch_before_move_status: bool = False
     branch_protect: bool = False
     branch_speed_ties: bool = False
 
