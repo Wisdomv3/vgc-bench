@@ -49,6 +49,7 @@ Before recommending any action, evaluate in this order:
 - [x] Add data-agnostic hidden-set hypothesis filtering, weighted sampling, and weighted damage estimates.
 - [ ] Connect hidden-set priors to sourced usage/replay data instead of hand-entered weights.
 - [x] Add a transparent opponent-action probability model with context-specific habit tracking.
+- [x] Harden opponent-action probability normalization, including zero-baseline empirical behaviors and non-finite prior rejection.
 - [x] Add a turn-response matrix that evaluates each of our legal actions across weighted opponent responses.
 - [x] Add initial turn action ordering for switches, priority, Speed, Tailwind, Trick Room, and explicit Speed ties.
 - [x] Add deterministic turn simulator core for switches, Protect, targeted/spread damage, faint cancellation, Tailwind, Trick Room, Prankster, and Grassy Glide.
