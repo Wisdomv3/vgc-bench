@@ -653,6 +653,50 @@ def _apply_indirect_damage(
     return dealt
 
 
+def _apply_direct_damage(
+    state: ExactTurnState,
+    events: list[SimulationEvent],
+    *,
+    side: TurnSide,
+    name: str,
+    amount: int,
+    event_type: SimulationEventType,
+    detail: str,
+) -> int:
+    """Apply direct damage that is not prevented by Magic Guard."""
+
+    profile = state.profile(side, name)
+    if profile.current_hp <= 0:
+        return 0
+
+    dealt = min(max(0, amount), profile.current_hp)
+    if dealt <= 0:
+        return 0
+
+    updated = replace(profile, current_hp=profile.current_hp - dealt)
+    state.profiles[(side, name)] = updated
+    events.append(
+        SimulationEvent(
+            type=event_type,
+            side=side,
+            actor=name,
+            target=name,
+            damage=dealt,
+            detail=detail,
+        )
+    )
+    if updated.current_hp == 0:
+        events.append(
+            SimulationEvent(
+                type=SimulationEventType.FAINT,
+                side=side,
+                actor=name,
+                detail=f"{name} fainted.",
+            )
+        )
+    return dealt
+
+
 def _heal_profile(
     state: ExactTurnState,
     events: list[SimulationEvent],
