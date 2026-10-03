@@ -38,7 +38,8 @@ Before recommending any action, evaluate in this order:
 - [x] Add before-move paralysis, sleep, and freeze mechanics with exact branching, sleep counters, Early Bird, sleep-usable moves, defrost moves, and thaw-on-hit interactions.
 - [x] Add confusion duration/self-hit branching, Own Tempo handling, and Hyper Beam/Giga Impact-style recharge turns.
 - [x] Add Truant loaf turns, Choice-item/Gorilla Tactics move locks, and cant-use-twice restrictions such as Gigaton Hammer/Blood Moon.
-- [ ] Add remaining restriction mechanics such as Disable, Taunt, Encore, Imprison, attraction, and other format-relevant edge cases.
+- [x] Add Disable, Taunt, Encore action override, and Imprison shared-move restrictions with volatile duration tracking.
+- [ ] Add remaining restriction mechanics such as attraction, Torment, PP exhaustion/Struggle, and other format-relevant edge cases.
 - [x] Rank candidate actions with an initial transparent heuristic scorer.
 - [ ] Benchmark against VGC-Bench heuristic agents.
 - [ ] Add behavior cloning and self-play.
